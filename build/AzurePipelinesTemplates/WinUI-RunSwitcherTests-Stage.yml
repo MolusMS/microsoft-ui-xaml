@@ -52,6 +52,8 @@ stages:
         value: $(Build.SourcesDirectory)\build\PipelineScripts
       - name: switcherResultsFile
         value: testResults-Foundation-Graphics-SwitcherTests.xml
+      - name: isValidateWindowsAppSDKRun
+        value: 0
       - name: ob_outputDirectory
         value: c:\uploadroot
       - name: ob_artifactBaseName
