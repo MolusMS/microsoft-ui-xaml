@@ -15,6 +15,8 @@ Param(
 
     [string]$CustomTaefQuery,
 
+    [string]$TaefExtraParameters,
+
     [ValidateSet("UAP", "WPF", "Win32Explicit", "")]
     [string]$HostingMode,
 
@@ -78,11 +80,11 @@ elseif($HostingMode -eq "Win32Explicit")
 }
 
 if ($HostingMode) {
-    $taefExtraParameters = "/p:HostingMode=$HostingMode"
+    $TaefExtraParameters = "$TaefExtraParameters /p:HostingMode=$HostingMode".Trim()
 }
 
 if ($SwitcherMode) {
-    $taefExtraParameters = "$taefExtraParameters /p:SwitcherMode=true".Trim()
+    $TaefExtraParameters = "$TaefExtraParameters /p:SwitcherMode=true".Trim()
 }
 
 $TestBinaryDirectoryPath = $TestBinaryPath
@@ -95,6 +97,6 @@ $TestBinaryDirectoryPath = $TestBinaryPath
     -WorkItemPrefix $WorkItemPrefix `
     -TaefBaseQuery $taefBaseQuery `
     -TestTimeout $testTimeout `
-    -TaefExtraParameters $taefExtraParameters `
+    -TaefExtraParameters $TaefExtraParameters `
     -TestNamePrefix $testnameprefix `
     -TaefExePath $TaefExePath

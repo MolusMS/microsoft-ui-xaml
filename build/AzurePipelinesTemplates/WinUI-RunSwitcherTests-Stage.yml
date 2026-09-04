@@ -5,19 +5,21 @@
 # Self-contained (modeled on WinUI-PGO-Train-Stage.yml, which uses the same ge_current pool) so
 # it does not touch the shared per-OS RunTests matrix.
 #
-# First run targets the two engagement certifiers ("*SwitcherTests*") to prove the switcher
-# engages end-to-end in the pipeline. To run the full master-backed suite, change testSelector
-# to:  "*" -TestsWithMasterFilesOnly   (keep /p:SwitcherMode=true so switcher masters are selected).
+# This stage targets the two SwitcherTests engagement certifiers to prove the switcher
+# engages end-to-end before expanding coverage to the full master-backed suite.
 parameters:
   - name: testSelector
     type: string
     default: '*SwitcherTests*'
+  - name: expectedTestCount
+    type: number
+    default: 2
 
 stages:
 - stage: RunSwitcherTests
   displayName: Run Switcher Tests (ge_current)
   dependsOn: Build
-  condition: succeeded()
+  condition: not(failed())
   jobs:
   - job: RunSwitcherTests_x86chk
     pool:
@@ -44,6 +46,12 @@ stages:
         value: $(Build.SourcesDirectory)\TestPayload
       - name: testPayloadDirInner
         value: $(testPayloadDir)\x86chk
+      - name: helixWorkItemsDir
+        value: $(Build.SourcesDirectory)\helixworkitems
+      - name: switcherResultsDir
+        value: $(Build.SourcesDirectory)\build\PipelineScripts
+      - name: switcherResultsFile
+        value: testResults-Foundation-Graphics-SwitcherTests.xml
       - name: ob_outputDirectory
         value: c:\uploadroot
       - name: ob_artifactBaseName
@@ -89,63 +97,72 @@ stages:
         filePath: test\CreateTestPayload.ps1
         arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols
 
-    # The switcher is engaged via the public CompositionEngine Limited Access Feature API
-    # (CompositionEngine::TrySetProcessEngine(System), called from the test's ModuleSetup under
-    # /p:SwitcherMode=true). On a ge_current image the feature is enabled by default and the LAF
-    # is available, so no additional machine configuration is needed here. If the image is not
-    # provisioned with the feature, the test reports "did not engage" and skips - which is the
-    # signal that the test pool needs the switcher feature enabled.
+    # Use the same generated-work-item path as the regular DevTestSuite. The tests declare
+    # RunAs=UAP but no Hosting:Mode metadata, so HostingMode is passed as a runtime parameter
+    # rather than added to the TAEF selection query. The token remains an environment-variable
+    # placeholder in the generated project and is expanded only by the work item's cmd process.
+    - template: WinUI-CreateHelixProjFile-Steps.yml
+      parameters:
+        testFilePathPattern: 'Test\Microsoft.UI.Xaml.Tests.External.Foundation.dll'
+        testBinaryPath: $(testPayloadDirInner)
+        outputProjFileName: 'RunTestsInHelix-SwitcherTests.proj'
+        testSuite: DevTestSuite
+        taefQuery: "(@Name='${{ parameters.testSelector }}')"
+        taefExtraParameters: '/p:HostingMode=UAP /p:SwitcherLafToken=%SWITCHER_LAF_TOKEN% /reportLoadingIssue'
+        switcherMode: 1
+        targetOsVersion: '26200'
+        taefExePath: $(testPayloadDirInner)\te.exe
 
     - task: powershell@2
-      displayName: Run Switcher Tests (UAP)
+      displayName: Run Switcher Tests
       timeoutInMinutes: 120
       inputs:
-        targetType: inline
-        workingDirectory: $(testPayloadDirInner)
-        script: |
-          # SwitcherTests are declared RunAs=UAP (packaged host) with no @Hosting:Mode property. Run them
-          # under UAP hosting to match - the regular DevTestSuite loads and runs this same test DLL under
-          # UAP, whereas forcing WPF failed to load Microsoft.UI.Xaml.Tests.External.Foundation.dll
-          # (0x8007007E). -forceHostingMode is required: without it runtests.ps1 adds
-          # "and (@Hosting:Mode='UAP')" to the selection query, which excludes the SwitcherTests (they
-          # have no @Hosting:Mode); -forceHostingMode keeps the name-based selection and still passes
-          # /p:HostingMode=UAP so te loads the DLL in the UAP app container. The LAF token in
-          # CompositionSwitcherLafToken must therefore be the UAP packaged-host token
-          # (family XamlTAEFTests_8wekyb3d8bbwe), not the WPF/centennial one.
-          #
-          # Capture te's console output so we can enforce a real result. te.exe returns exit code 0
-          # when tests are Blocked (e.g. the test DLL or a dependency fails to load), which would
-          # otherwise let this stage pass green without actually running the switcher tests. Parse the
-          # TAEF summary and fail on Blocked>0 or Passed==0 so a "didn't actually run" is never a pass.
-          $consoleLog = Join-Path "$(ob_outputDirectory)" 'switcher-te-console.log'
-          New-Item -ItemType Directory -Path "$(ob_outputDirectory)" -Force | Out-Null
-          .\runtests.cmd "${{ parameters.testSelector }}" -HostingMode:UAP -forceHostingMode /p:SwitcherMode=true /p:SwitcherLafToken=$(CompositionSwitcherLafToken) /reportLoadingIssue 2>&1 | Tee-Object -FilePath $consoleLog
-          $teExit = $LASTEXITCODE
+        targetType: filePath
+        filePath: Helix\common\pipeline\RunTestPassSliceOnBuildAgent.ps1
+        arguments: -WorkItemProjFileNameFilter RunTestsInHelix-SwitcherTests.proj -WorkItemProjDir $(helixWorkItemsDir) -TestPayloadDir $(testPayloadDirInner) -UploadRoot $(ob_outputDirectory) -JobPositionInPhase 1 -TotalJobsInPhase 1 -RerunPassesRequiredToAvoidFailure 1
+        errorActionPreference: stop
+        workingDirectory: $(switcherResultsDir)
+      env:
+        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
-          $summaryLine = Select-String -Path $consoleLog -Pattern 'Summary:\s*Total=(\d+).*?Passed=(\d+).*?Failed=(\d+).*?Blocked=(\d+)' | Select-Object -Last 1
-          if (-not $summaryLine) {
-            Write-Host "##vso[task.logissue type=error]Switcher tests produced no TAEF summary - te.exe did not run to completion."
-            exit 1
+    - task: powershell@2
+      condition: always()
+      displayName: Verify switcher certification results
+      inputs:
+        targetType: inline
+        workingDirectory: $(switcherResultsDir)
+        script: |
+          $resultPath = Join-Path (Get-Location) '$(switcherResultsFile)'
+          if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
+            throw "No switcher xUnit results were produced at $resultPath."
           }
-          $m = $summaryLine.Matches[0].Groups
-          $total = [int]$m[1].Value; $passed = [int]$m[2].Value; $failed = [int]$m[3].Value; $blocked = [int]$m[4].Value
-          Write-Host "Switcher TAEF summary: Total=$total Passed=$passed Failed=$failed Blocked=$blocked (te exit=$teExit)"
-          if ($blocked -gt 0) {
-            Write-Host "##vso[task.logissue type=error]$blocked switcher test(s) were Blocked - the test DLL or a dependency failed to load (the switcher tests did not actually run). Failing the stage instead of passing green."
-            exit 1
+
+          $total = 0
+          $passed = 0
+          $failed = 0
+          $skipped = 0
+          [xml]$result = Get-Content -LiteralPath $resultPath
+          foreach ($assembly in @($result.assemblies.assembly)) {
+            $total += [int]$assembly.total
+            $passed += [int]$assembly.passed
+            $failed += [int]$assembly.failed
+            $skipped += [int]$assembly.skipped
           }
-          if ($total -eq 0 -or $passed -eq 0) {
-            Write-Host "##vso[task.logissue type=error]No switcher tests passed (Total=$total Passed=$passed) - failing the stage."
-            exit 1
+
+          Write-Host "Switcher xUnit summary: Total=$total Passed=$passed Failed=$failed Skipped=$skipped"
+          if ($total -ne ${{ parameters.expectedTestCount }} -or
+              $passed -ne ${{ parameters.expectedTestCount }} -or
+              $failed -ne 0 -or
+              $skipped -ne 0) {
+            throw "Switcher certification requires exactly ${{ parameters.expectedTestCount }} passing tests."
           }
-          exit $teExit
 
     - task: PublishTestResults@2
       condition: always()
       inputs:
         testResultsFormat: xUnit
-        testResultsFiles: 'te.wtl;testResults-*.xml'
-        searchFolder: $(testPayloadDirInner)
+        testResultsFiles: $(switcherResultsFile)
+        searchFolder: $(switcherResultsDir)
         mergeTestResults: true
         failTaskOnFailedTests: true
         testRunTitle: 'SwitcherTests x86chk'
