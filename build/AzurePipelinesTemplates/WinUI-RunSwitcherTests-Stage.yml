@@ -97,6 +97,19 @@ stages:
         filePath: test\CreateTestPayload.ps1
         arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols
 
+    # Work-item generation runs TAEF discovery, so the UAP dependencies must be installed before
+    # generation. RunHelixWorkItem.ps1 calls this again, but the payload marker makes that a no-op.
+    - task: powershell@2
+      displayName: Prepare machine for test discovery
+      inputs:
+        targetType: filePath
+        filePath: $(testPayloadDirInner)\RunSetupIfNeeded.ps1
+        workingDirectory: $(testPayloadDirInner)
+        errorActionPreference: continue
+        ignoreLASTEXITCODE: true
+      env:
+        HELIX_CORRELATION_PAYLOAD: $(testPayloadDirInner)
+
     # Use the same generated-work-item path as the regular DevTestSuite. The tests declare
     # RunAs=UAP but no Hosting:Mode metadata, so HostingMode is passed as a runtime parameter
     # rather than added to the TAEF selection query. The token remains an environment-variable
