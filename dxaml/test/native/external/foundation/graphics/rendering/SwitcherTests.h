@@ -26,13 +26,12 @@ public:
     TEST_METHOD_CLEANUP(TestCleanup)
 
     BEGIN_TEST_METHOD(CompNode1WUCFullSwitcherWithMockDComp)
-        TEST_METHOD_PROPERTY(L"Description", L"Switcher + MockDComp injection together. Certifies MockDComp still interposes correctly under switcher, so the master-backed suite's mock-based tree dumps remain valid under SwitcherMode.")
+        TEST_METHOD_PROPERTY(L"Description", L"Switcher + MockDComp injection together. Certifies XAML uses the mock DComp device and the master-backed suite's tree dumps remain valid under switcher.")
         TEST_METHOD_PROPERTY(L"HasAssociatedMasterFile", L"True")
     END_TEST_METHOD()
 
     BEGIN_TEST_METHOD(VerifyLiftedSystemCompositionPath)
         TEST_METHOD_PROPERTY(L"Description", L"Engagement certifier: uses CompositionEngine::GetForSystemEngine to verify the lifted compositor's system-engine equivalent is Windows.UI.Composition.Compositor (proves lifted->system routing, not a silent no-op). Because the backend flip is process-wide, this one proof certifies the whole SwitcherMode run.")
-        TEST_METHOD_PROPERTY(L"HasAssociatedMasterFile", L"True")
     END_TEST_METHOD()
 
 private:

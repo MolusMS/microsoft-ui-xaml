@@ -115,13 +115,7 @@ void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupF
     auto wh = TestServices::WindowHelper;
     auto u = TestServices::Utilities;
 
-    // injectMockDComp=true: opt back into MockDComp under switcher.
-    WUCRenderingScopeGuard wuc(
-        DCompRendering::WUCCompleteSynchronousCompTree,
-        /*resizeWindow*/true,
-        /*injectMockDComp*/true,
-        /*resetDevice*/false,
-        /*resetWindowContent*/false);
+    WUCRenderingScopeGuard wuc(DCompRendering::WUCCompleteSynchronousCompTree);
 
     wh->SetWindowSizeOverride(wf::Size(400, 400));
 
@@ -132,27 +126,10 @@ void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupF
     });
     wh->WaitForIdle();
 
-    // Soft check: when MockDComp is interposed, the compositor returned to XAML may be
-    // MockDCompDevice (which has no system-engine equivalent). A null result here is
-    // informational; it tells us MockDComp blocked the lifted->system path from reaching XAML.
-    // Use VerifyLiftedSystemCompositionPath (no MockDComp) for the strong engagement assertion.
-    RunOnUIThread([&]()
-    {
-        auto visual = Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::GetElementVisual(root);
-        auto compositor = visual->Compositor;
-
-        // Public API: does the lifted compositor have a system-engine equivalent under MockDComp?
-        Platform::Object^ systemObject = nullptr;
-        try
-        {
-            systemObject = Microsoft::UI::Composition::CompositionEngine::GetForSystemEngine(compositor);
-        }
-        catch (Platform::Exception^) {}
-
-        WEX::Logging::Log::Comment(WEX::Common::String().Format(
-            L"CompositionEngine::GetForSystemEngine under MockDComp: %s (non-null=switcher reached XAML; null=MockDComp interposed)",
-            systemObject ? L"non-null" : L"null"));
-    });
+    MockDComp::IMockDCompDevice^ mockDevice = wh->MockDCompDevice;
+    VERIFY_IS_NOT_NULL(
+        mockDevice,
+        L"XAML's DComp device does not implement IMockDCompDevice under switcher");
 
     // VerifyMockDCompOutput compares the captured tree to the master xml resource.
     u->VerifyMockDCompOutput(MockDComp::SurfaceComparison::NoComparison);
