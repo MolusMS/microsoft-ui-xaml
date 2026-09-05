@@ -103,6 +103,10 @@ bool SwitcherTests::TestCleanup()
 
 void SwitcherTests::CompNode1WUCFullSwitcherWithMockDComp()
 {
+    // Switching leaves one 16-byte process-lifetime allocation attributed to
+    // XamlCheckProcessRequirements. Keep the exemption scoped to this test.
+    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
+
     // Switcher + MockDComp injection together. With the IXP identity refactor in place,
     // VerifyMockDCompOutput should produce XML byte-identical to the non-switcher master.
     LoadAndVerifySwitcherWithMockDComp(L"CompNode1.xaml");
