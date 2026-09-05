@@ -99,6 +99,16 @@ stages:
         filePath: test\CreateTestPayload.ps1
         arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols
 
+    # Build-output reuse can supply a manifest generated before CompositionEngine was included in
+    # TestExtensionsBase.xml. Patch that payload in place so the packaged UAP host can activate the
+    # dcompi implementation before the switcher test module enters its setup.
+    - task: powershell@2
+      displayName: Register switcher activation class
+      inputs:
+        targetType: filePath
+        filePath: test\PrepareSwitcherPayload.ps1
+        arguments: -TestPayloadDir $(testPayloadDirInner)
+
     # Work-item generation runs TAEF discovery, so the UAP dependencies must be installed before
     # generation. RunHelixWorkItem.ps1 calls this again, but the payload marker makes that a no-op.
     - task: powershell@2

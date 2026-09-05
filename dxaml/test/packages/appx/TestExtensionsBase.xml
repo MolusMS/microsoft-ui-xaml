@@ -45,3 +45,9 @@
         <ActivatableClass ActivatableClassId="Private.Infrastructure.Hosting.HostingHelpers.HostingSetupHelper" ThreadingModel="both" />
       </InProcessServer>
     </Extension>
+    <Extension Category="windows.activatableClass.inProcessServer">
+      <InProcessServer>
+        <Path>dcompi.dll</Path>
+        <ActivatableClass ActivatableClassId="Microsoft.UI.Composition.CompositionEngine" ThreadingModel="both" />
+      </InProcessServer>
+    </Extension>
