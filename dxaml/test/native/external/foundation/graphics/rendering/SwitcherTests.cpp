@@ -44,7 +44,7 @@ bool SwitcherTests::ClassSetup()
         if (SUCCEEDED(WEX::TestExecution::RuntimeParameters::TryGetValue(L"SwitcherLafToken", switcherLafToken))
             && !switcherLafToken.IsEmpty())
         {
-            auto unlockResult = Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
+            auto unlockResult = ::Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
                 ref new Platform::String(L"com.microsoft.windows.composition.engine"),
                 ref new Platform::String(static_cast<const wchar_t*>(switcherLafToken)),
                 ref new Platform::String(
