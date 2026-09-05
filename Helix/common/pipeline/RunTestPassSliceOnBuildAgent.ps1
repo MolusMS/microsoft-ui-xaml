@@ -105,7 +105,14 @@ foreach($workItem in $workItemsToRun)
     $fullCommand = "$precommand`n$command"
     Write-Host $fullCommand
     Out-File -FilePath "temp-runworkitem.cmd" -Encoding ascii -InputObject $fullCommand
-    & ./temp-runworkitem.cmd | Tee-Object -file $consoleLogOutputFile
+    & ./temp-runworkitem.cmd 2>&1 | ForEach-Object {
+        $line = "$_"
+        if (-not [string]::IsNullOrEmpty($env:SWITCHER_LAF_TOKEN))
+        {
+            $line = $line.Replace($env:SWITCHER_LAF_TOKEN, "***")
+        }
+        $line
+    } | Tee-Object -file $consoleLogOutputFile
 
     if(!$SkipCopyTestResultsXml)
     {
@@ -121,9 +128,12 @@ foreach($workItem in $workItemsToRun)
     Get-ChildItem -Path $workItemUploadRoot -Filter *_subresults.json | Move-Item -Destination $uploadRoot
 }
 
-# Upload at most 3 dumps from this run
-$files = Get-ChildItem -Path $dumpsDir -Filter *.dmp | Select-Object -First 3
-foreach($file in $files)
+if ($env:SKIP_DUMP_UPLOAD -ne "1")
 {
-    Move-Item $file.FullName $uploadRoot -Force
+    # Upload at most 3 dumps from this run
+    $files = Get-ChildItem -Path $dumpsDir -Filter *.dmp | Select-Object -First 3
+    foreach($file in $files)
+    {
+        Move-Item $file.FullName $uploadRoot -Force
+    }
 }

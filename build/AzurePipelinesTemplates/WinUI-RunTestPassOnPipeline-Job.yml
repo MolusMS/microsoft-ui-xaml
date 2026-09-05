@@ -11,6 +11,8 @@ parameters:
   rerunPassesRequiredToAvoidFailure: 5
   testPayloadArtifactName: 'TestPayload'
   failOnTestFailure: true
+  imageOverride: ''
+  switcherMode: false
 # We run the bulk of our tests in Helix. But this Job runs tests directly on the Pipeline agents.
 # These Pipeline agents are running on a ni_release build of Windows which is not available in Helix.
 # This approach allows us to run tests on prerelease builds of Windows.
@@ -28,12 +30,15 @@ jobs:
         demands: ImageOverride -equals Win11-23h2-pro-arm64
     ${{ else }}:
       name: WinDevPool-Test
-      ${{ if eq( parameters.testOS, 'Win10-RS5' ) }}:
-        demands: ImageOverride -equals Win10-2019-LTSC
-      ${{ if eq( parameters.testOS, 'Win11-25H2' ) }}:
-        demands: ImageOverride -equals Win11-25H2
-      ${{ if eq( parameters.testOS, 'Win11-23H2') }}:
-        demands: ImageOverride -equals Win11-23H2
+      ${{ if ne(parameters.imageOverride, '') }}:
+        demands: ImageOverride -equals ${{ parameters.imageOverride }}
+      ${{ else }}:
+        ${{ if eq( parameters.testOS, 'Win10-RS5' ) }}:
+          demands: ImageOverride -equals Win10-2019-LTSC
+        ${{ if eq( parameters.testOS, 'Win11-25H2' ) }}:
+          demands: ImageOverride -equals Win11-25H2
+        ${{ if eq( parameters.testOS, 'Win11-23H2') }}:
+          demands: ImageOverride -equals Win11-23H2
   timeoutInMinutes: 100
   strategy:
     ${{ if eq( parameters.testSuite, 'DevTestSuite') }}:
@@ -89,6 +94,19 @@ jobs:
       script: |
         Copy-Item -Path "$(Build.ArtifactStagingDirectory)\${{ parameters.testPayloadArtifactName }}_*\*" -Destination "$(Build.SourcesDirectory)" -Recurse -Force
 
+  - ${{ if eq(parameters.switcherMode, true) }}:
+    - task: powershell@2
+      displayName: Mask switcher LAF token
+      inputs:
+        targetType: inline
+        script: |
+          if ([string]::IsNullOrWhiteSpace($env:SWITCHER_LAF_TOKEN)) {
+            throw "CompositionSwitcherLafToken is not configured."
+          }
+          Write-Host "##vso[task.setsecret]$env:SWITCHER_LAF_TOKEN"
+      env:
+        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
   - task: powershell@2
     displayName: Run Tests
     timeoutInMinutes: 90
@@ -98,6 +116,10 @@ jobs:
       arguments: -WorkItemProjFileNameFilter $(workItemsProjNameFilter) -WorkItemProjDir $(workItemsProjDir) -TestPayloadDir $(testPayloadDir) -UploadRoot $(uploadRootInner) -JobPositionInPhase $(System.JobPositionInPhase) -TotalJobsInPhase $(System.TotalJobsInPhase) -RerunPassesRequiredToAvoidFailure ${{ parameters.rerunPassesRequiredToAvoidFailure }}
       errorActionPreference: stop
       workingDirectory: $(Build.SourcesDirectory)\build\PipelineScripts
+    ${{ if eq(parameters.switcherMode, true) }}:
+      env:
+        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+        SKIP_DUMP_UPLOAD: '1'
 
   - task: PublishTestResults@2
     condition: always()
@@ -107,6 +129,7 @@ jobs:
       searchFolder: $(Build.SourcesDirectory)\build\PipelineScripts
       mergeTestResults: true
       failTaskOnFailedTests: ${{ parameters.failOnTestFailure }}
+      failTaskOnMissingResultsFile: ${{ parameters.switcherMode }}
       testRunTitle: '$(testRunTitle)'
       buildPlatform: $(buildPlatform)
       buildConfiguration: $(buildConfiguration)

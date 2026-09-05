@@ -64,9 +64,24 @@ if ($parts.Count -gt 1)
     }
 }
 
+if ($taefParameters -and $taefParameters.Contains("__SWITCHER_LAF_TOKEN__"))
+{
+    if ([string]::IsNullOrWhiteSpace($env:SWITCHER_LAF_TOKEN))
+    {
+        throw "SWITCHER_LAF_TOKEN is required by this work item."
+    }
+    $taefParameters = $taefParameters.Replace("__SWITCHER_LAF_TOKEN__", $env:SWITCHER_LAF_TOKEN)
+}
+
+function Protect-TaefParameters
+{
+    param ([string] $parameters)
+    return $parameters -replace '(?i)(/p:SwitcherLafToken=)(?:"[^"]*"|\S+)', '$1***'
+}
+
 Write-Host "testBinaries = $testBinaries"
 Write-Host "taefQuery = $taefQuery"
-Write-Host "taefParameters = $taefParameters"
+Write-Host "taefParameters = $(Protect-TaefParameters $taefParameters)"
 Write-Host "testnameprefix = $testnameprefix"
 
 $picturesPath = [Environment]::GetFolderPath("mypictures")
@@ -101,13 +116,20 @@ function Run-Taef
     Wiggle-Mouse
 
     $teCommand = "te.exe $testBinaries /enablewttlogging /enableEtwLogging /unicodeOutput:false /testtimeout:0:05 /p:DisableErrorHandling /screenCaptureOnError $taefParameters $taefAdditionalParams"
-    Write-Host $teCommand
+    Write-Host (Protect-TaefParameters $teCommand)
 
     # Ideally, we would just use '&' or 'Invoke-Expression' here to execute taef. However, powershell unhelpfully modifies the string to add 
     # extra quotes around parts of the arguments which gives the incorrect behavior since the argument string is already exactly as it needs 
     # to be. I was unable to find a way to disable this behavior, so as a workaround we create a .cmd file and invoke that.
     Out-File -FilePath "run.cmd" -Encoding ascii -InputObject $teCommand
-    & ./run.cmd
+    try
+    {
+        & ./run.cmd
+    }
+    finally
+    {
+        Delete-IfExists .\run.cmd
+    }
 }
 
 function Copy-Screenshots

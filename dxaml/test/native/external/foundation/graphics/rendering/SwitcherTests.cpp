@@ -9,7 +9,6 @@
 #include "FileLoader.h"
 #include "TestCleanupWrapper.h"
 #include <RuntimeEnabledFeatureOverride.h>
-#include <RuntimeParameters.h>
 #include <wrl.h>
 
 using namespace ::Windows::UI;
@@ -35,47 +34,6 @@ Platform::String^ SwitcherTests::GetResourcesPath() const
 
 bool SwitcherTests::ClassSetup()
 {
-    // Enable the switcher BEFORE any compositor or composition object is created.
-    // CompositionEngine::TrySetProcessEngine must be called before InitializeXaml.
-    // Signature: bool TrySetProcessEngine(CompositionEngineType requested);
-    try
-    {
-        WEX::Common::String switcherLafToken;
-        if (SUCCEEDED(WEX::TestExecution::RuntimeParameters::TryGetValue(L"SwitcherLafToken", switcherLafToken))
-            && !switcherLafToken.IsEmpty())
-        {
-            auto unlockResult = ::Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
-                ref new Platform::String(L"com.microsoft.windows.composition.engine"),
-                ref new Platform::String(static_cast<const wchar_t*>(switcherLafToken)),
-                ref new Platform::String(
-                    L"8wekyb3d8bbwe has registered their use of "
-                    L"com.microsoft.windows.composition.engine with Microsoft and agrees to the terms of use."));
-            WEX::Logging::Log::Comment(WEX::Common::String().Format(
-                L"SwitcherTests: LAF TryUnlockFeature status=%d",
-                static_cast<int>(unlockResult->Status)));
-        }
-
-        bool ok = Microsoft::UI::Composition::CompositionEngine::TrySetProcessEngine(
-            Microsoft::UI::Composition::CompositionEngineType::System);
-
-        if (!ok)
-        {
-            WEX::Logging::Log::Comment(WEX::Common::String().Format(
-                L"TrySetProcessEngine(System) did not engage (ok=%d) - skipping",
-                static_cast<int>(ok)));
-            return false;
-        }
-    }
-    catch (Platform::Exception^ ex)
-    {
-        WEX::Logging::Log::Comment(WEX::Common::String().Format(
-            L"CompositionEngine API not available (hr=0x%08x) - switcher bits not in this build, skipping",
-            ex->HResult));
-        return false;
-    }
-
-    WEX::Logging::Log::Comment(L"Switcher enabled via CompositionEngine::TrySetProcessEngine(System)");
-
     CommonTestSetupHelper::CommonTestClassSetup();
     return true;
 }
@@ -89,7 +47,7 @@ bool SwitcherTests::TestSetup()
 {
     // Tests in this class mirror the lifted CompNodeTests pattern: inject MockDComp,
     // load XAML, call VerifyMockDCompOutput. Switcher is enabled process-wide in
-    // ClassSetup via CompositionEngine::TrySetProcessEngine(System).
+    // CommonTestSetupHelper before XAML initialization.
     test_infra::TestServices::WindowHelper->InitializeXaml();
     return true;
 }

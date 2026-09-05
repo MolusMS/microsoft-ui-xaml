@@ -32,7 +32,8 @@ Param(
     # When true, engages the lifted system-composition switcher for this pass by passing
     # /p:SwitcherMode=true to te.exe. This both flips the backend in ModuleSetup and makes the
     # test infra prefer .master.switcher.<ext> baselines (falling back to .master.<ext>).
-    [bool]$SwitcherMode = $false,
+    [ValidateSet("true", "false", "1", "0")]
+    [string]$SwitcherMode = "false",
 
     [string]$TaefExePath
 )
@@ -83,7 +84,7 @@ if ($HostingMode) {
     $TaefExtraParameters = "$TaefExtraParameters /p:HostingMode=$HostingMode".Trim()
 }
 
-if ($SwitcherMode) {
+if ($SwitcherMode -eq "true" -or $SwitcherMode -eq "1") {
     $TaefExtraParameters = "$TaefExtraParameters /p:SwitcherMode=true".Trim()
 }
 
