@@ -134,7 +134,10 @@ stages:
         testSuite: DevTestSuite
         taefQuery: "(@Name='${{ parameters.testSelector }}')"
         taefExtraParameters: '/p:HostingMode=UAP /p:SwitcherLafToken=%SWITCHER_LAF_TOKEN% /reportLoadingIssue'
-        switcherMode: 1
+        # SwitcherTests::ClassSetup engages the switcher inside the packaged UAP host. Do not also
+        # pass SwitcherMode=true: ModuleSetup runs in an elevated unpackaged fixture process where
+        # the AppX CompositionEngine registration is intentionally unavailable.
+        switcherMode: 0
         targetOsVersion: '26200'
         taefExePath: $(testPayloadDirInner)\te.exe
 
