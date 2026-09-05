@@ -1,7 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 #
-# Runs the composition switcher tests on a ge_current lab VM under /p:SwitcherMode=true.
+# Runs the composition switcher tests on a ge_current lab VM, engaging the switcher from the
+# packaged SwitcherTests class setup before XAML is initialized.
 # Self-contained (modeled on WinUI-PGO-Train-Stage.yml, which uses the same ge_current pool) so
 # it does not touch the shared per-OS RunTests matrix.
 #
@@ -99,16 +100,6 @@ stages:
         filePath: test\CreateTestPayload.ps1
         arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols
 
-    # Build-output reuse can supply a manifest generated before CompositionEngine was included in
-    # TestExtensionsBase.xml. Patch that payload in place so the packaged UAP host can activate the
-    # dcompi implementation before the switcher test module enters its setup.
-    - task: powershell@2
-      displayName: Register switcher activation class
-      inputs:
-        targetType: filePath
-        filePath: test\PrepareSwitcherPayload.ps1
-        arguments: -TestPayloadDir $(testPayloadDirInner)
-
     # Work-item generation runs TAEF discovery, so the UAP dependencies must be installed before
     # generation. RunHelixWorkItem.ps1 calls this again, but the payload marker makes that a no-op.
     - task: powershell@2
@@ -140,6 +131,18 @@ stages:
         switcherMode: 0
         targetOsVersion: '26200'
         taefExePath: $(testPayloadDirInner)\te.exe
+
+    - task: PowerShell@2
+      displayName: Mask switcher LAF token
+      inputs:
+        targetType: inline
+        script: |
+          if ([string]::IsNullOrWhiteSpace($env:SWITCHER_LAF_TOKEN)) {
+            throw "CompositionSwitcherLafToken is not configured."
+          }
+          Write-Host "##vso[task.setsecret]$env:SWITCHER_LAF_TOKEN"
+      env:
+        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
     - task: powershell@2
       displayName: Run Switcher Tests
