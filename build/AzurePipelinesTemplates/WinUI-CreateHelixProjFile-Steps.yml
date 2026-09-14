@@ -10,7 +10,7 @@ parameters:
   taefQuery: ''
   taefExtraParameters: ''
   hostingMode: ''
-  switcherMode: 'false'
+  switcherMode: 0
   targetOsVersion: ''
   taefExePath: ''
   
