@@ -7,11 +7,16 @@ using Windows.Foundation;
 namespace Private.Infrastructure.Hosting.WPF
 {
     [global::Windows.Foundation.Metadata.MarshalingBehavior(global::Windows.Foundation.Metadata.MarshalingType.Agile)]
-    public sealed partial class HostFactory : IWin32HostFactory 
+    public sealed partial class HostFactory : IWin32HostFactory, IWin32HostFactorySwitcher
     {
         public void SetExceptionHandler(ExceptionHandler handler)
         {
             AppDomainExceptionHandler.SetExceptionHandler(handler);
+        }
+
+        public void ConfigureCompositionSwitcher(string lafToken)
+        {
+            CompositionSwitcher.ConfigureAndCertify(lafToken);
         }
 
         private async Task<object> CreateInternal(DpiAwarenessContext dpiAwarenessContext, bool initCore)
@@ -27,4 +32,3 @@ namespace Private.Infrastructure.Hosting.WPF
         }
     }
 }
-

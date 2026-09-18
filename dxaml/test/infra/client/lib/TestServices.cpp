@@ -21,6 +21,11 @@
 #include "ThemingHelper.h"
 #include "PredictableDManipEnabler.h"
 #include <RuntimeEnabledFeaturesEnum.h>
+#include <RuntimeParameters.h>
+#include <appmodel.h>
+#include <Microsoft.UI.Composition.h>
+#include <windows.foundation.h>
+#include <windows.ui.composition.h>
 #include <windows.applicationmodel.core.h>
 #include <corewindow.h>
 #include <IXamlTestHooks-win.h>
@@ -33,6 +38,86 @@
 using namespace WEX::Common;
 using namespace WEX::TestExecution;
 using namespace Microsoft::UI::Xaml::Tests::Common;
+
+namespace
+{
+    HRESULT IsCurrentProcessPackaged(_Out_ bool* isPackaged)
+    {
+        *isPackaged = false;
+        UINT32 packageFullNameLength = 0;
+        const LONG result = GetCurrentPackageFullName(
+            &packageFullNameLength,
+            nullptr);
+        if (result == ERROR_INSUFFICIENT_BUFFER)
+        {
+            *isPackaged = true;
+            return S_OK;
+        }
+        return result == APPMODEL_ERROR_NO_PACKAGE ?
+            S_OK :
+            HRESULT_FROM_WIN32(result);
+    }
+
+    HRESULT CertifyPackagedUapSystemComposition()
+    {
+        wrl::ComPtr<ABI::Microsoft::UI::Composition::ICompositionEngineStatics>
+            compositionEngine;
+        RETURN_IF_FAILED(wf::GetActivationFactory(
+            wrl::Wrappers::HStringReference(
+                RuntimeClass_Microsoft_UI_Composition_CompositionEngine).Get(),
+            &compositionEngine));
+
+        wrl::ComPtr<IInspectable> compositor;
+        RETURN_IF_FAILED(RoActivateInstance(
+            wrl::Wrappers::HStringReference(
+                RuntimeClass_Microsoft_UI_Composition_Compositor).Get(),
+            &compositor));
+
+        wrl::ComPtr<IInspectable> systemCompositorObject;
+        RETURN_IF_FAILED(compositionEngine->GetForSystemEngine(
+            compositor.Get(),
+            &systemCompositorObject));
+        RETURN_HR_IF(E_FAIL, systemCompositorObject == nullptr);
+
+        wrl::ComPtr<ABI::Windows::UI::Composition::ICompositor> systemCompositor;
+        RETURN_IF_FAILED(systemCompositorObject.As(&systemCompositor));
+
+        wrl::ComPtr<wf::IClosable> closable;
+        RETURN_IF_FAILED(compositor.As(&closable));
+        RETURN_IF_FAILED(closable->Close());
+
+        wchar_t executablePath[MAX_PATH]{};
+        const DWORD executablePathLength = GetModuleFileNameW(
+            nullptr,
+            executablePath,
+            ARRAYSIZE(executablePath));
+        RETURN_LAST_ERROR_IF(
+            executablePathLength == 0 ||
+            executablePathLength >= ARRAYSIZE(executablePath));
+        const wchar_t* executableName = wcsrchr(executablePath, L'\\');
+        executableName =
+            executableName == nullptr ? executablePath : executableName + 1;
+
+        if (_wcsicmp(executableName, L"taefhostapp.exe") == 0)
+        {
+            LOG_OUTPUT(
+                L"SwitcherMode: native packaged UAP test process selected and certified System composition.");
+        }
+        else if (_wcsicmp(executableName, L"TaefHostAppManaged.exe") == 0)
+        {
+            LOG_OUTPUT(
+                L"SwitcherMode: managed packaged UAP test process selected and certified System composition.");
+        }
+        else
+        {
+            LOG_OUTPUT(
+                L"SwitcherMode: unexpected packaged UAP executable %s.",
+                executableName);
+            return E_UNEXPECTED;
+        }
+        return S_OK;
+    }
+}
 
 namespace Private { namespace Infrastructure {
 
@@ -76,10 +161,40 @@ HRESULT TestServicesStatics::RuntimeClassInitialize()
     {
         WaitForDebugger();
 
-        LogThrow_IfFailed(InitializeHost());
-
         Hosting::HostingMode hostingMode = Hosting::HostingMode::UAP;
         LogThrow_IfFailed(GetHostingMode(&hostingMode));
+
+        WEX::Common::String switcherModeParam;
+        m_switcherMode =
+            SUCCEEDED(RuntimeParameters::TryGetValue(L"SwitcherMode", switcherModeParam)) &&
+            (switcherModeParam.CompareNoCase(L"true") == 0 || switcherModeParam == L"1");
+
+        if (m_switcherMode)
+        {
+            WEX::Common::String switcherLafTokenParam;
+            LogThrow_IfFailed(RuntimeParameters::TryGetValue(
+                L"SwitcherLafToken",
+                switcherLafTokenParam));
+            const wchar_t* switcherLafToken = reinterpret_cast<const wchar_t*>(
+                switcherLafTokenParam.GetBuffer());
+            LogThrow_IfFailed(::WindowsCreateString(
+                switcherLafToken,
+                static_cast<UINT32>(wcslen(switcherLafToken)),
+                m_switcherLafToken.ReleaseAndGetAddressOf()));
+            LogThrow_If(::WindowsIsStringEmpty(m_switcherLafToken.Get()),
+                E_ACCESSDENIED);
+
+            bool isPackaged = false;
+            LogThrow_IfFailed(IsCurrentProcessPackaged(&isPackaged));
+            if (hostingMode == Hosting::HostingMode::UAP && isPackaged)
+            {
+                // The packaged executable selects System before Application::Start.
+                // TrySetProcessEngine is one-shot, so only certify the committed backend here.
+                LogThrow_IfFailed(CertifyPackagedUapSystemComposition());
+            }
+        }
+
+        LogThrow_IfFailed(InitializeHost());
 
         if (hostingMode == Hosting::HostingMode::UAP)
         {
@@ -304,7 +419,12 @@ HRESULT TestServicesStatics::InitializeHostAndDpiAwarenessContextAndCore(boolean
 
         try
         {
-            m_spWin32Host = Win32Hosting::StartWin32Host(L"Private.Infrastructure.Hosting.WPF.HostFactory", dpiAwarenessContext, initCore);
+            m_spWin32Host = Win32Hosting::StartWin32Host(
+                L"Private.Infrastructure.Hosting.WPF.HostFactory",
+                dpiAwarenessContext,
+                initCore,
+                m_switcherMode,
+                m_switcherLafToken.Get());
         }
         catch (const WEX::Common::Exception&)
         {
@@ -356,7 +476,12 @@ HRESULT TestServicesStatics::InitializeHostAndDpiAwarenessContextAndCore(boolean
     {
         LOG_OUTPUT(L"Hosting mode is WinForms");
 
-        m_spWin32Host = Win32Hosting::StartWin32Host(L"Private.Infrastructure.Hosting.WinForms.HostFactory", test_infra::Hosting::DpiAwarenessContext::DpiAwarenessContext_PerMonitorAwareV2, initCore);
+        m_spWin32Host = Win32Hosting::StartWin32Host(
+            L"Private.Infrastructure.Hosting.WinForms.HostFactory",
+            test_infra::Hosting::DpiAwarenessContext::DpiAwarenessContext_PerMonitorAwareV2,
+            initCore,
+            m_switcherMode,
+            m_switcherLafToken.Get());
         dispatcher = Win32Hosting::GetDispatcherQueueFromWin32XamlContentRoot(m_spWin32Host);
         uint64_t handle = 0;
         FAIL_FAST_IF_FAILED(m_spWin32Host->get_MainWindowHandle(&handle));

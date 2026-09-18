@@ -14,7 +14,12 @@ using namespace WEX::TestExecution;
 using namespace Microsoft::WRL;
 using namespace Microsoft::UI::Xaml::Tests::Common;
 
-wrl::ComPtr<test_infra::Hosting::IWin32Host> Win32Hosting::StartWin32Host(const wchar_t* hostFactoryType, test_infra::Hosting::DpiAwarenessContext dpiAwarenessContext, bool initCore)
+wrl::ComPtr<test_infra::Hosting::IWin32Host> Win32Hosting::StartWin32Host(
+    const wchar_t* hostFactoryType,
+    test_infra::Hosting::DpiAwarenessContext dpiAwarenessContext,
+    bool initCore,
+    bool switcherMode,
+    HSTRING switcherLafToken)
 {
     wrl::ComPtr<IInspectable> spInsp;
 
@@ -31,6 +36,15 @@ wrl::ComPtr<test_infra::Hosting::IWin32Host> Win32Hosting::StartWin32Host(const 
             return S_OK;
         });
     LogThrow_IfFailed(spHostFactory->SetExceptionHandler(exceptionHandlerCallback.Get()));
+
+    if (switcherMode)
+    {
+        wrl::ComPtr<test_infra::Hosting::IWin32HostFactorySwitcher> switcherHostFactory;
+        LogThrow_IfFailed(spHostFactory.As(&switcherHostFactory));
+        LogThrow_IfFailed(switcherHostFactory->ConfigureCompositionSwitcher(
+            switcherLafToken));
+        LOG_OUTPUT(L"SwitcherMode: %s selected and certified System composition.", hostFactoryType);
+    }
 
     wrl::ComPtr<wf::IAsyncOperation<IInspectable*>> spAsyncOperation;
 

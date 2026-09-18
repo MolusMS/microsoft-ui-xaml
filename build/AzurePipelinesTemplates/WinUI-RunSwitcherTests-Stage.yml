@@ -1,13 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 #
-# Runs the composition switcher tests on a ge_current lab VM, engaging the switcher from the
-# packaged SwitcherTests class setup before XAML is initialized.
+# Runs the composition switcher tests on a ge_current lab VM, using the masked LAF token to
+# engage the switcher in the packaged host before XAML is initialized.
 # Self-contained (modeled on WinUI-PGO-Train-Stage.yml, which uses the same ge_current pool) so
 # it does not touch the shared per-OS RunTests matrix.
 #
-# This stage targets the two SwitcherTests engagement certifiers to prove the switcher
-# engages end-to-end before expanding coverage to the full master-backed suite.
+# This stage runs the SwitcherTests engagement certifiers, then independently probes the
+# master-backed UAP and WPF suites. Each broad probe must certify System composition before
+# functional failures are treated as non-gating.
 parameters:
   - name: testSelector
     type: string
@@ -30,10 +31,8 @@ stages:
       demands: ImageOverride -equals ge_current-vhdx_enterprise
     timeoutInMinutes: 180
     variables:
-      # WinUI-InternalFeed (group 6276) carries the CompositionSwitcherLafToken variable that unlocks the
-      # CompositionEngine LAF for the switcher. It is referenced by name only; the value lives in ADO
-      # Library and never appears in this (public) yaml. This group is already loaded/authorized for the
-      # WinUI-GitHub-PR pipeline (def 195405).
+      # This authorized variable group carries CompositionSwitcherLafToken; only the variable
+      # name is public, while the value remains in Azure Pipelines Library.
       - group: WinUI-InternalFeed
       - name: buildPlatform
         value: 'x86'
@@ -66,6 +65,18 @@ stages:
     - script: |
         reg query "HKLM\Software\Microsoft\Windows NT\CurrentVersion"
       displayName: Display OS version info
+
+    - task: PowerShell@2
+      displayName: Register switcher LAF token as secret
+      inputs:
+        targetType: inline
+        script: |
+          if ([string]::IsNullOrEmpty($env:SWITCHER_LAF_TOKEN)) {
+            throw 'The composition switcher LAF token is unavailable.'
+          }
+          Write-Host "##vso[task.setsecret]$env:SWITCHER_LAF_TOKEN"
+      env:
+        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
     - task: NuGetAuthenticate@1
 
@@ -115,8 +126,10 @@ stages:
 
     # Use the same generated-work-item path as the regular DevTestSuite. The tests declare
     # RunAs=UAP but no Hosting:Mode metadata, so HostingMode is passed as a runtime parameter
-    # rather than added to the TAEF selection query. The token remains an environment-variable
-    # placeholder in the generated project and is expanded only by the work item's cmd process.
+    # rather than added to the TAEF selection query. The launch request makes the packaged host
+    # select System before Application::Start; ClassSetup reauthorizes the token and the tests
+    # certify the committed backend. The token placeholder remains unexpanded in the work item and is
+    # expanded only by cmd.exe on the execution machine after Azure Pipelines masks the value.
     - template: WinUI-CreateHelixProjFile-Steps.yml
       parameters:
         testFilePathPattern: 'Test\Microsoft.UI.Xaml.Tests.External.Foundation.dll'
@@ -125,22 +138,22 @@ stages:
         testSuite: DevTestSuite
         taefQuery: "(@Name='${{ parameters.testSelector }}')"
         taefExtraParameters: '/p:HostingMode=UAP /p:SwitcherLafToken=%SWITCHER_LAF_TOKEN% /reportLoadingIssue'
-        # SwitcherTests::ClassSetup engages the switcher inside the packaged UAP host. Do not also
+        # The packaged entry point engages the switcher before ClassSetup. Do not also
         # pass SwitcherMode=true: ModuleSetup runs in an elevated unpackaged fixture process where
         # the AppX CompositionEngine registration is intentionally unavailable.
         switcherMode: 0
         targetOsVersion: '26200'
         taefExePath: $(testPayloadDirInner)\te.exe
 
-    - task: PowerShell@2
-      displayName: Mask switcher LAF token
+    - task: powershell@2
+      displayName: Create packaged switcher launch request
       inputs:
-        targetType: inline
-        script: |
-          if ([string]::IsNullOrWhiteSpace($env:SWITCHER_LAF_TOKEN)) {
-            throw "CompositionSwitcherLafToken is not configured."
-          }
-          Write-Host "##vso[task.setsecret]$env:SWITCHER_LAF_TOKEN"
+        targetType: filePath
+        filePath: build\PipelineScripts\Set-SwitcherLaunchRequest.ps1
+        arguments: >-
+          -LaunchRequestDirectory "$(testPayloadDirInner)\Test\.winui-switcher"
+          -NativeManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.native.current.xml"
+          -ManagedManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.managed.current.xml"
       env:
         SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
@@ -153,6 +166,38 @@ stages:
         arguments: -WorkItemProjFileNameFilter RunTestsInHelix-SwitcherTests.proj -WorkItemProjDir $(helixWorkItemsDir) -TestPayloadDir $(testPayloadDirInner) -UploadRoot $(ob_outputDirectory) -JobPositionInPhase 1 -TotalJobsInPhase 1 -RerunPassesRequiredToAvoidFailure 1
         errorActionPreference: stop
         workingDirectory: $(switcherResultsDir)
+      env:
+        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+    - task: PowerShell@2
+      condition: always()
+      displayName: Remove packaged switcher launch request
+      inputs:
+        targetType: inline
+        script: |
+          $launchRequestDirectory =
+            Join-Path "$(testPayloadDirInner)" 'Test\.winui-switcher'
+          if (Test-Path -LiteralPath $launchRequestDirectory) {
+            Remove-Item -LiteralPath $launchRequestDirectory -Recurse -Force
+          }
+          foreach ($temporaryFile in @(
+              (Join-Path "$(switcherResultsDir)" 'args.txt'),
+              (Join-Path "$(switcherResultsDir)" 'temp-runworkitem.cmd'),
+              (Join-Path "$(testPayloadDirInner)" 'run.cmd'))) {
+            if (Test-Path -LiteralPath $temporaryFile -PathType Leaf) {
+              Remove-Item -LiteralPath $temporaryFile -Force
+            }
+          }
+
+    - task: PowerShell@2
+      condition: always()
+      displayName: Sanitize switcher diagnostic artifacts
+      inputs:
+        targetType: filePath
+        filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
+        arguments: >-
+          -ArtifactRoot "$(ob_outputDirectory)"
+          -AdditionalArtifactPath "$(switcherResultsDir)\$(switcherResultsFile)"
       env:
         SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
@@ -188,47 +233,8 @@ stages:
             throw "Switcher certification requires exactly ${{ parameters.expectedTestCount }} passing tests."
           }
 
-    # ---- NON-GATING full-suite engagement probe (no regkey) -------------------------------------------
-    # Runs the full master-backed lifted suite under /p:SwitcherMode=true, which (a) engages the switcher
-    # process-wide via ModuleSetup and (b) makes each test prefer .master.switcher.<ext> (fallback .master.<ext>).
-    # Engagement uses the PUBLIC-API LAF path only (SwitcherLafToken) - NO regkey. continueOnError + a separate
-    # te process, AFTER the gating CompNode certification, so it cannot affect the 14/14 gate. Purpose: empirically
-    # determine on the CURRENT ge_current image whether ModuleSetup engagement works for non-SwitcherTests classes
-    # (if it Blocks with REGDB/"did not engage", per-class packaged ClassSetup engagement is required instead).
-    # The Collect/Publish steps below capture any generated .save.xml trees for baselining.
-    - task: powershell@2
-      condition: always()
-      continueOnError: true
-      timeoutInMinutes: 220
-      displayName: '[Probe] Full master-backed suite under SwitcherMode (no regkey)'
-      inputs:
-        targetType: inline
-        workingDirectory: $(testPayloadDirInner)
-        script: |
-          New-Item -ItemType Directory -Path "$(ob_outputDirectory)" -Force | Out-Null
-          $logUap = Join-Path "$(ob_outputDirectory)" 'fullsuite-switcher-probe.log'
-          $logWpf = Join-Path "$(ob_outputDirectory)" 'fullsuite-switcher-probe-wpf.log'
-          function Report-Summary($label,$log) {
-            $s = Select-String -Path $log -Pattern 'Summary:\s*Total=(\d+).*?Passed=(\d+).*?Failed=(\d+).*?Blocked=(\d+)' | Select-Object -Last 1
-            if ($s) { Write-Host "##[section]FULL-SUITE PROBE ($label): $($s.Line.Trim())" }
-            else    { Write-Host "##[warning]Full-suite probe ($label) produced no TAEF summary - likely did not engage (see $(Split-Path $log -Leaf))." }
-          }
-          # Pass 1 - UAP hosting (packaged host; engages via taefhostapp App::OnLaunched)
-          Write-Host "##[group]UAP hosting pass"
-          .\runtests.cmd "*" -TestsWithMasterFilesOnly -HostingMode:UAP -forceHostingMode /p:SwitcherMode=true /p:SwitcherLafToken=$env:SWITCHER_LAF_TOKEN /reportLoadingIssue 2>&1 | Tee-Object -FilePath $logUap
-          Write-Host "##[endgroup]"
-          # Pass 2 - WPF hosting (desktop host) - completes the full ~1316 master-backed suite
-          Write-Host "##[group]WPF hosting pass"
-          .\runtests.cmd "*" -TestsWithMasterFilesOnly -HostingMode:WPF -forceHostingMode /p:SwitcherMode=true /p:SwitcherLafToken=$env:SWITCHER_LAF_TOKEN /reportLoadingIssue 2>&1 | Tee-Object -FilePath $logWpf
-          Write-Host "##[endgroup]"
-          Report-Summary 'UAP' $logUap
-          Report-Summary 'WPF' $logWpf
-          Write-Host "Full-suite probe (UAP + WPF) done (non-gating)."
-      env:
-        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
-
     - task: PublishTestResults@2
-      condition: always()
+      condition: and(always(), eq(variables['SwitcherArtifactsSanitized'], 'true'))
       inputs:
         testResultsFormat: xUnit
         testResultsFiles: $(switcherResultsFile)
@@ -258,9 +264,38 @@ stages:
             Write-Host "No XamlTAEFOutput folder at $src - nothing to collect (test produced no trees)."
           }
 
-    - task: PublishPipelineArtifact@1
+    - task: PowerShell@2
       condition: always()
+      displayName: Sanitize collected switcher baselines
+      inputs:
+        targetType: filePath
+        filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
+        arguments: -ArtifactRoot "$(ob_outputDirectory)\SwitcherBaselining"
+      env:
+        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+    - task: PublishPipelineArtifact@1
+      condition: and(always(), eq(variables['SwitcherArtifactsSanitized'], 'true'))
       displayName: Publish switcher output for baselining
       inputs:
-        targetPath: $(ob_outputDirectory)
+        targetPath: $(ob_outputDirectory)\SwitcherBaselining
         artifact: 'switcher_x86chk'
+
+  - template: WinUI-RunSwitcherFullSuite-Job.yml
+    parameters:
+      jobName: RunSwitcherFullSuite_UAP_x86chk
+      displayName: 'Probe full master-backed UAP suite under SwitcherMode'
+      hostingMode: UAP
+      logFileName: fullsuite-switcher-probe-uap.log
+      artifactName: switcher_fullsuite_uap_x86chk
+      certificationMarker: 'SwitcherMode: native packaged UAP test process selected and certified System composition.'
+      additionalCertificationMarker: 'SwitcherMode: managed packaged UAP test process selected and certified System composition.'
+
+  - template: WinUI-RunSwitcherFullSuite-Job.yml
+    parameters:
+      jobName: RunSwitcherFullSuite_WPF_x86chk
+      displayName: 'Probe full master-backed WPF suite under SwitcherMode'
+      hostingMode: WPF
+      logFileName: fullsuite-switcher-probe-wpf.log
+      artifactName: switcher_fullsuite_wpf_x86chk
+      certificationMarker: 'SwitcherMode: Private.Infrastructure.Hosting.WPF.HostFactory selected and certified System composition.'
