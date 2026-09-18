@@ -91,6 +91,9 @@ namespace Private { namespace Infrastructure {
 
         wrl::ComPtr<test_infra::Hosting::IWin32Host> m_spWin32Host;
 
+        bool m_switcherMode = false;
+        wrl::Wrappers::HString m_switcherLafToken;
+
         static bool s_isInitialized;
     };
 

@@ -64,7 +64,7 @@
     <WindowsXamlEnableOverview>true</WindowsXamlEnableOverview>
     <PackageCertificateKeyFile>$(ProjectRoot)\build\WinUITest.pfx</PackageCertificateKeyFile>
     <DebugSymbols Condition="'$(Configuration)' == 'Debug'">true</DebugSymbols>
-    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP</DefineConstants>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UWP;DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <DefineConstants Condition="'$(Configuration)' == 'Debug'">$(DefineConstants);DEBUG</DefineConstants>
     <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
     <NoWarn>;2008</NoWarn>
@@ -90,10 +90,14 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Program.cs" />
     <Compile Include="MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="..\Win32Hosting\winmd\CompositionSwitcher.cs">
+      <Link>CompositionSwitcher.cs</Link>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <AppxManifest Include="AppxManifest.xml" />
@@ -222,9 +226,8 @@
   </PropertyGroup>
   <!-- We don't want to actually use an AppX for tests - we run our tests from a directory that we get to act like the root of an AppX
        but whose contents are actually just loose files.  However, packing everything in an AppX has us collect in one nice bundle
-       everything we need to run this app - our root exe + entrypoint exe, plus AppX dependencies, are all collected together in a form
-       that we can easily deploy and run. To facilitate that deployment, we'll unzip those AppX packages to a location and then binplace
-       their contents. -->
+       everything we need to run this app, plus AppX dependencies, in a form that we can easily deploy and run. The custom entry point
+       changes the package layout, so binplace the compiler's root activation shim and managed entrypoint directly. -->
   <Target Name="UnpackPackages" AfterTargets="AddBinplaceItems" BeforeTargets="Binplace" Condition="'$(BuildingInsideVisualStudio)' != 'true'">
     <PropertyGroup>
       <TargetDestination>$(TestBinplaceDestinationPath)</TargetDestination>
@@ -240,8 +243,8 @@
       <BinplaceItem Include="$(OutDir)resources.pri">
         <Destination>$(TargetDestination)\managed</Destination>
       </BinplaceItem>
-      <BinplaceItem Include="$(TempDir)AppPackages_Unzipped\$(PackageName)\$(AssemblyName).exe" />
-      <BinplaceItem Include="$(TempDir)AppPackages_Unzipped\$(PackageName)\entrypoint\$(AssemblyName).exe">
+      <BinplaceItem Include="$(OutDir)Core\$(AssemblyName).exe" />
+      <BinplaceItem Include="$(OutDir)$(AssemblyName).exe">
         <Destination>$(TargetDestination)\entrypoint</Destination>
       </BinplaceItem>
       <BinplaceItem Include="$(OutDir)TE.AppxUnitTestClient.Managed.dll">

@@ -21,6 +21,7 @@
 #include "ThemingHelper.h"
 #include "PredictableDManipEnabler.h"
 #include <RuntimeEnabledFeaturesEnum.h>
+#include <RuntimeParameters.h>
 #include <windows.applicationmodel.core.h>
 #include <corewindow.h>
 #include <IXamlTestHooks-win.h>
@@ -76,10 +77,32 @@ HRESULT TestServicesStatics::RuntimeClassInitialize()
     {
         WaitForDebugger();
 
-        LogThrow_IfFailed(InitializeHost());
-
         Hosting::HostingMode hostingMode = Hosting::HostingMode::UAP;
         LogThrow_IfFailed(GetHostingMode(&hostingMode));
+
+        WEX::Common::String switcherModeParam;
+        m_switcherMode =
+            SUCCEEDED(RuntimeParameters::TryGetValue(L"SwitcherMode", switcherModeParam)) &&
+            (switcherModeParam.CompareNoCase(L"true") == 0 || switcherModeParam == L"1");
+
+        if (m_switcherMode)
+        {
+            WEX::Common::String switcherLafTokenParam;
+            LogThrow_IfFailed(RuntimeParameters::TryGetValue(
+                L"SwitcherLafToken",
+                switcherLafTokenParam));
+            const wchar_t* switcherLafToken = reinterpret_cast<const wchar_t*>(
+                switcherLafTokenParam.GetBuffer());
+            LogThrow_IfFailed(::WindowsCreateString(
+                switcherLafToken,
+                static_cast<UINT32>(wcslen(switcherLafToken)),
+                m_switcherLafToken.ReleaseAndGetAddressOf()));
+            LogThrow_If(::WindowsIsStringEmpty(m_switcherLafToken.Get()),
+                E_ACCESSDENIED);
+
+        }
+
+        LogThrow_IfFailed(InitializeHost());
 
         if (hostingMode == Hosting::HostingMode::UAP)
         {
@@ -304,7 +327,12 @@ HRESULT TestServicesStatics::InitializeHostAndDpiAwarenessContextAndCore(boolean
 
         try
         {
-            m_spWin32Host = Win32Hosting::StartWin32Host(L"Private.Infrastructure.Hosting.WPF.HostFactory", dpiAwarenessContext, initCore);
+            m_spWin32Host = Win32Hosting::StartWin32Host(
+                L"Private.Infrastructure.Hosting.WPF.HostFactory",
+                dpiAwarenessContext,
+                initCore,
+                m_switcherMode,
+                m_switcherLafToken.Get());
         }
         catch (const WEX::Common::Exception&)
         {
@@ -356,7 +384,12 @@ HRESULT TestServicesStatics::InitializeHostAndDpiAwarenessContextAndCore(boolean
     {
         LOG_OUTPUT(L"Hosting mode is WinForms");
 
-        m_spWin32Host = Win32Hosting::StartWin32Host(L"Private.Infrastructure.Hosting.WinForms.HostFactory", test_infra::Hosting::DpiAwarenessContext::DpiAwarenessContext_PerMonitorAwareV2, initCore);
+        m_spWin32Host = Win32Hosting::StartWin32Host(
+            L"Private.Infrastructure.Hosting.WinForms.HostFactory",
+            test_infra::Hosting::DpiAwarenessContext::DpiAwarenessContext_PerMonitorAwareV2,
+            initCore,
+            m_switcherMode,
+            m_switcherLafToken.Get());
         dispatcher = Win32Hosting::GetDispatcherQueueFromWin32XamlContentRoot(m_spWin32Host);
         uint64_t handle = 0;
         FAIL_FAST_IF_FAILED(m_spWin32Host->get_MainWindowHandle(&handle));

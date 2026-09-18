@@ -35,36 +35,41 @@ Platform::String^ SwitcherTests::GetResourcesPath() const
 
 bool SwitcherTests::ClassSetup()
 {
-    // Enable the switcher BEFORE any compositor or composition object is created.
-    // CompositionEngine::TrySetProcessEngine must be called before InitializeXaml.
-    // Signature: bool TrySetProcessEngine(CompositionEngineType requested);
+    // The packaged entry point selects System before Application::Start.
+    // ClassSetup validates the matching TAEF credential but must not repeat the one-shot
+    // TrySetProcessEngine call after packaged XAML startup.
     try
     {
         WEX::Common::String switcherLafToken;
-        if (SUCCEEDED(WEX::TestExecution::RuntimeParameters::TryGetValue(L"SwitcherLafToken", switcherLafToken))
-            && !switcherLafToken.IsEmpty())
+        if (FAILED(WEX::TestExecution::RuntimeParameters::TryGetValue(
+                L"SwitcherLafToken",
+                switcherLafToken)) ||
+            switcherLafToken.IsEmpty())
         {
-            auto unlockResult = ::Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
-                ref new Platform::String(L"com.microsoft.windows.composition.engine"),
-                ref new Platform::String(static_cast<const wchar_t*>(switcherLafToken)),
-                ref new Platform::String(
-                    L"8wekyb3d8bbwe has registered their use of "
-                    L"com.microsoft.windows.composition.engine with Microsoft and agrees to the terms of use."));
-            WEX::Logging::Log::Comment(WEX::Common::String().Format(
-                L"SwitcherTests: LAF TryUnlockFeature status=%d",
-                static_cast<int>(unlockResult->Status)));
-        }
-
-        bool ok = Microsoft::UI::Composition::CompositionEngine::TrySetProcessEngine(
-            Microsoft::UI::Composition::CompositionEngineType::System);
-
-        if (!ok)
-        {
-            WEX::Logging::Log::Comment(WEX::Common::String().Format(
-                L"TrySetProcessEngine(System) did not engage (ok=%d) - skipping",
-                static_cast<int>(ok)));
+            WEX::Logging::Log::Comment(
+                L"Composition switcher tests require a non-empty LAF token.");
             return false;
         }
+
+        auto unlockResult = ::Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
+            ref new Platform::String(L"com.microsoft.windows.composition.engine"),
+            ref new Platform::String(reinterpret_cast<const wchar_t*>(
+                switcherLafToken.GetBuffer())),
+            ref new Platform::String(
+                L"8wekyb3d8bbwe has registered their use of "
+                L"com.microsoft.windows.composition.engine with Microsoft and agrees to the terms of use."));
+        WEX::Logging::Log::Comment(WEX::Common::String().Format(
+            L"SwitcherTests: LAF status=%d",
+            static_cast<int>(unlockResult->Status)));
+        if (unlockResult->Status !=
+            ::Windows::ApplicationModel::LimitedAccessFeatureStatus::Available)
+        {
+            WEX::Logging::Log::Comment(WEX::Common::String().Format(
+                L"Composition switcher LAF authorization failed (status=%d)",
+                static_cast<int>(unlockResult->Status)));
+            return false;
+        }
+
     }
     catch (Platform::Exception^ ex)
     {
@@ -74,7 +79,8 @@ bool SwitcherTests::ClassSetup()
         return false;
     }
 
-    WEX::Logging::Log::Comment(L"Switcher enabled via CompositionEngine::TrySetProcessEngine(System)");
+    WEX::Logging::Log::Comment(
+        L"Switcher LAF token authorized; the packaged entry point owns System engine selection.");
 
     CommonTestSetupHelper::CommonTestClassSetup();
     return true;
@@ -89,7 +95,7 @@ bool SwitcherTests::TestSetup()
 {
     // Tests in this class mirror the lifted CompNodeTests pattern: inject MockDComp,
     // load XAML, call VerifyMockDCompOutput. Switcher is enabled process-wide in
-    // ClassSetup via CompositionEngine::TrySetProcessEngine(System).
+    // the packaged entry point before Application::Start.
     test_infra::TestServices::WindowHelper->InitializeXaml();
     return true;
 }
