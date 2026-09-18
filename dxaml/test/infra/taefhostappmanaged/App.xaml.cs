@@ -4,7 +4,9 @@ using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using Private.Infrastructure.Hosting;
 using Windows.ApplicationModel;
+using WEX.Logging.Interop;
 
 namespace TaefHostAppManaged
 {
@@ -18,6 +20,13 @@ namespace TaefHostAppManaged
 
         protected override void OnLaunched(LaunchActivatedEventArgs e)
         {
+            var switcherLafToken = Program.ReadSwitcherLafToken();
+            if (switcherLafToken != null)
+            {
+                // Select before window activation, matching the native packaged host.
+                CompositionSwitcher.Configure(switcherLafToken);
+            }
+
             Frame rootFrame = Window.Current.Content as Frame;
 
             if (rootFrame == null)
@@ -30,10 +39,21 @@ namespace TaefHostAppManaged
             if (e.UWPLaunchActivatedEventArgs.PrelaunchActivated == false)
             {
                 Window.Current.Activate();
-                
+
+                if (CompositionSwitcher.IsConfigured)
+                {
+                    CompositionSwitcher.Certify();
+                }
+
                 if (e.Arguments.Length > 1)
                 {
                     Microsoft.VisualStudio.TestPlatform.TestExecutor.UnitTestClient.Run(e.Arguments);
+                    if (CompositionSwitcher.IsConfigured)
+                    {
+                        // UnitTestClient.Run initializes the TAEF logging endpoint.
+                        Log.Comment(
+                            "SwitcherMode: managed packaged UAP test process selected and certified System composition.");
+                    }
                 }
                 else if (rootFrame.Content == null)
                 {

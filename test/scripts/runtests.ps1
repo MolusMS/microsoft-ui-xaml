@@ -87,6 +87,19 @@ function get-tests {
     Write-Output -NoEnumerate $testlist
 }
 
+function Protect-SensitiveTaefParameters {
+    param([string[]]$Arguments)
+
+    @($Arguments | ForEach-Object {
+        if ($_ -like '/p:SwitcherLafToken=*') {
+            '/p:SwitcherLafToken=***'
+        }
+        else {
+            $_
+        }
+    })
+}
+
 $TestDir = $PSScriptRoot
 
 Push-Location $TestDir
@@ -272,10 +285,11 @@ if($TerminateOnFirstFailure)
     $argsEx += "/terminateOnFirstFailure"
 }
 
+$loggedExtraArgs = Protect-SensitiveTaefParameters $ExtraArgs
 Write-Host $argsEx
-Write-Host $ExtraArgs
+Write-Host $loggedExtraArgs
 
-Write-Host ".\te.exe "Test\Microsoft.UI.Xaml.Tests.*.dll" "Test\MUXControls.Test.dll" "Test\UnpackagedApps\MUXControlsTestApp\MUXControlsTestApp.dll" "Test\IXMPTestApp.appx" "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $ExtraArgs"
+Write-Host ".\te.exe "Test\Microsoft.UI.Xaml.Tests.*.dll" "Test\MUXControls.Test.dll" "Test\UnpackagedApps\MUXControlsTestApp\MUXControlsTestApp.dll" "Test\IXMPTestApp.appx" "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $loggedExtraArgs"
 .\te.exe "Test\Microsoft.UI.Xaml.Tests.*.dll" "Test\MUXControls.Test.dll" "Test\UnpackagedApps\MUXControlsTestApp\MUXControlsTestApp.dll" "Test\IXMPTestApp.appx" "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $ExtraArgs
 
 Pop-Location
