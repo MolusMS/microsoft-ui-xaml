@@ -8,7 +8,7 @@ using Private.Infrastructure.Hosting;
 
 namespace Private.Infrastructure.Hosting.WinForms
 {
-    public sealed class HostFactory: IWin32HostFactory
+    public sealed class HostFactory: IWin32HostFactory, IWin32HostFactorySwitcher
     {
 #if BUILD_WINDOWS
         [CLSCompliant(false)]
@@ -16,6 +16,11 @@ namespace Private.Infrastructure.Hosting.WinForms
         public void SetExceptionHandler(ExceptionHandler handler)
         {
             AppDomainExceptionHandler.SetExceptionHandler(handler);
+        }
+
+        public void ConfigureCompositionSwitcher(string lafToken)
+        {
+            CompositionSwitcher.ConfigureAndCertify(lafToken);
         }
 
         private async Task<object> CreateInternal()
@@ -34,4 +39,3 @@ namespace Private.Infrastructure.Hosting.WinForms
         }
     }
 }
-

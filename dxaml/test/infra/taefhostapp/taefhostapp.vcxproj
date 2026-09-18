@@ -77,7 +77,7 @@
       <!-- C++/CX is incompatible with C++20.  This project is CX so it cannot use C++20. -->
       <LanguageStandard>stdcpp17</LanguageStandard>
       <!-- adding the desktop app API family is key to defeating the limitations placed on WinRT apps by default -->
-      <PreprocessorDefinitions>_UNICODE;UNICODE;%(PreprocessorDefinitions);WINAPI_FAMILY=WINAPI_FAMILY_DESKTOP_APP</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_UNICODE;UNICODE;DISABLE_XAML_GENERATED_MAIN;%(PreprocessorDefinitions);WINAPI_FAMILY=WINAPI_FAMILY_DESKTOP_APP</PreprocessorDefinitions>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <!-- error C4453: 'Microsoft::UI::Xaml::Navigation::NavigationEventArgs' : A '[WebHostHidden]' type should not be used on the published surface of a public type that is not '[WebHostHidden]' (App.xaml.cpp) -->
       <DisableSpecificWarnings>4453</DisableSpecificWarnings>
