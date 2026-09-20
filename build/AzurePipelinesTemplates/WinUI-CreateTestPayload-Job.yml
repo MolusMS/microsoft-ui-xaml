@@ -329,13 +329,15 @@ jobs:
                 $commandText = [string]$command
                 if ($projectName -eq 'RunTestsInHelix-UnitTests.proj') {
                   if ($commandText.Contains('/p:SwitcherMode=') -or
-                      $commandText.Contains('/p:SwitcherLafToken=')) {
+                      $commandText.Contains('/p:SwitcherLafToken=') -or
+                      $commandText.Contains('/p:SwitcherRunId=')) {
                     throw 'Isolated UnitTests must retain their ordinary non-composition command.'
                   }
                 } else {
                   foreach ($requiredArgument in @(
                       '/p:SwitcherMode=true',
                       '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN%',
+                      '/p:SwitcherRunId=$(Build.BuildId)',
                       '/reportLoadingIssue')) {
                     if (-not $commandText.Contains($requiredArgument)) {
                       throw "Switcher DevTestSuite project $projectName is missing $requiredArgument."

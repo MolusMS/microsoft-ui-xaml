@@ -116,6 +116,9 @@ jobs:
         -AdditionalLaunchRequestDirectories
         "$(testPayloadDir)\Test\UnpackagedApps\MUXControlsTestApp\.winui-switcher",
         "$(testPayloadDir)\Test\UnpackagedApps\TabViewTearOutApp\.winui-switcher"
+        -PackagedLaunchRequestManifestPath
+        "$(Build.SourcesDirectory)\controls\test\IXMPTestApp\Package.appxmanifest"
+        -RunId "$(Build.BuildId)"
     env:
       SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
@@ -144,8 +147,18 @@ jobs:
     inputs:
       targetType: inline
       script: |
+        $removeArguments = @{
+          TestDirectory = "$(testPayloadDir)\Test"
+        }
+        $packagedRequestDirectory =
+          "$(SwitcherPackagedLaunchRequestDirectory)"
+        if (-not [string]::IsNullOrWhiteSpace($packagedRequestDirectory) -and
+            -not $packagedRequestDirectory.Contains('$(')) {
+          $removeArguments.PackagedLaunchRequestDirectory =
+            $packagedRequestDirectory
+        }
         & "$(Build.SourcesDirectory)\build\PipelineScripts\Remove-SwitcherLaunchRequests.ps1" `
-          -TestDirectory "$(testPayloadDir)\Test"
+          @removeArguments
         foreach ($temporaryFile in @(
             (Join-Path "$(switcherResultsDir)" 'args.txt'),
             (Join-Path "$(switcherResultsDir)" 'temp-runworkitem.cmd'),

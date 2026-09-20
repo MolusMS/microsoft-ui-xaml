@@ -35,17 +35,41 @@ namespace MUXControlsTestApp
                 testContext.Properties.Contains("SwitcherLafToken") &&
                 !string.IsNullOrEmpty(
                     Convert.ToString(testContext.Properties["SwitcherLafToken"]));
-            if (hasSwitcherMode || hasSwitcherLafToken)
+            string switcherLafToken = hasSwitcherLafToken
+                ? Convert.ToString(testContext.Properties["SwitcherLafToken"])
+                : null;
+            bool hasSwitcherRunId =
+                testContext.Properties.Contains("SwitcherRunId") &&
+                !string.IsNullOrEmpty(
+                    Convert.ToString(testContext.Properties["SwitcherRunId"]));
+            string switcherRunId = hasSwitcherRunId
+                ? Convert.ToString(testContext.Properties["SwitcherRunId"])
+                : null;
+            if (hasSwitcherMode ||
+                hasSwitcherLafToken ||
+                hasSwitcherRunId ||
+                SwitcherComposition.IsRequested)
             {
                 Verify.IsTrue(
                     switcherModeEnabled,
                     "IXMP must receive SwitcherMode=true with its LAF credential.");
                 Verify.IsTrue(
+                    hasSwitcherLafToken,
+                    "IXMP must receive a non-empty Switcher LAF credential.");
+                Verify.IsTrue(
+                    hasSwitcherRunId,
+                    "IXMP must receive the current Switcher pipeline run identifier.");
+                Verify.IsTrue(
                     SwitcherComposition.IsRequested,
-                    "IXMP must receive Switcher activation parameters.");
+                    "IXMP must receive a packaged Switcher launch request.");
                 Verify.IsTrue(
                     SwitcherComposition.IsConfigured,
                     "IXMP Switcher mode must be certified before tests run.");
+                Verify.IsTrue(
+                    SwitcherComposition.IsConfiguredFor(
+                        switcherLafToken,
+                        switcherRunId),
+                    "IXMP Switcher certification must match the current TAEF request.");
                 Log.Comment(
                     "SwitcherMode: IXMPTestApp process selected and certified System composition.");
             }

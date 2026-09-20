@@ -19,12 +19,16 @@ namespace Microsoft.UI.Xaml.Tests.Common
         private const string RequestDirectoryName = ".winui-switcher";
         private const string TokenFileName = "system-backend";
         private const string RequestIdFileName = "request-id";
+        private const string RunIdFileName = "run-id";
+        private const string ExpirationFileName = "expires-at";
         private const string CertificationFileName = "system-backend.certified";
         private const int MaximumRequestValueSize = 64 * 1024;
 
         private static readonly object SyncRoot = new object();
         private static bool systemCompositionConfigured;
         private static bool switcherRequested;
+        private static string configuredLafToken;
+        private static string configuredRunId;
 
         internal static bool IsConfigured
         {
@@ -53,9 +57,84 @@ namespace Microsoft.UI.Xaml.Tests.Common
             string requestDirectory = Path.Combine(
                 AppContext.BaseDirectory,
                 RequestDirectoryName);
+            return ConfigureAndCertifyFromLaunchRequest(
+                requestDirectory,
+                null,
+                null,
+                true);
+        }
+
+        internal static bool ConfigureAndCertifyFromPackagedLaunchRequest()
+        {
+            // TAEF removes package data before activation, so this request must live outside LocalState.
+            string programData =
+                global::Windows.Storage.SystemDataPaths.GetDefault().ProgramData;
+            if (string.IsNullOrEmpty(programData))
+            {
+                throw new InvalidOperationException(
+                    "The ProgramData directory is unavailable.");
+            }
+
+            string requestDirectory = Path.Combine(
+                programData,
+                "Microsoft",
+                "WinUI",
+                "CompositionSwitcher",
+                "Requests",
+                Package.Current.Id.FamilyName,
+                RequestDirectoryName);
+            return ConfigureAndCertifyFromLaunchRequest(
+                requestDirectory,
+                RunIdFileName,
+                ExpirationFileName,
+                false);
+        }
+
+        internal static bool IsConfiguredFor(string lafToken, string runId)
+        {
+            lock (SyncRoot)
+            {
+                return systemCompositionConfigured &&
+                    string.Equals(
+                        configuredLafToken,
+                        lafToken,
+                        StringComparison.Ordinal) &&
+                    string.Equals(
+                        configuredRunId,
+                        runId,
+                        StringComparison.Ordinal);
+            }
+        }
+
+        private static bool ConfigureAndCertifyFromLaunchRequest(
+            string requestDirectory,
+            string runIdFileName,
+            string expirationFileName,
+            bool writeCertification)
+        {
             if (!Directory.Exists(requestDirectory))
             {
                 return false;
+            }
+            if (!string.IsNullOrEmpty(expirationFileName))
+            {
+                string expirationPath = Path.Combine(
+                    requestDirectory,
+                    expirationFileName);
+                string expiration = File.Exists(expirationPath)
+                    ? ReadBoundedText(expirationPath)
+                    : null;
+                DateTimeOffset expirationTime;
+                if (!DateTimeOffset.TryParseExact(
+                        expiration,
+                        "O",
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind,
+                        out expirationTime) ||
+                    expirationTime <= DateTimeOffset.UtcNow)
+                {
+                    return false;
+                }
             }
 
             string requestId = ReadBoundedText(
@@ -69,47 +148,64 @@ namespace Microsoft.UI.Xaml.Tests.Common
 
             string lafToken = ReadBoundedText(
                 Path.Combine(requestDirectory, TokenFileName));
-            ConfigureAndCertify(lafToken);
-
-            string certification =
-                parsedRequestId.ToString("D", CultureInfo.InvariantCulture) +
-                Environment.NewLine +
-                GetCurrentProcessId().ToString(CultureInfo.InvariantCulture);
-            File.WriteAllText(
-                Path.Combine(requestDirectory, CertificationFileName),
-                certification,
-                new UTF8Encoding(false));
-            return true;
-        }
-
-        internal static bool ConfigureAndCertifyFromActivationArguments(
-            string arguments)
-        {
-            string switcherMode = GetActivationParameter(arguments, "SwitcherMode");
-            string lafToken = GetActivationParameter(arguments, "SwitcherLafToken");
-            bool hasSwitcherMode = !string.IsNullOrEmpty(switcherMode);
-            bool hasLafToken = !string.IsNullOrEmpty(lafToken);
-            if (!hasSwitcherMode && !hasLafToken)
+            string runId = string.IsNullOrEmpty(runIdFileName)
+                ? null
+                : ReadBoundedText(
+                    Path.Combine(requestDirectory, runIdFileName));
+            string certificationPath = Path.Combine(
+                requestDirectory,
+                CertificationFileName);
+            if (writeCertification)
             {
-                return false;
-            }
-            if (!IsTrue(switcherMode))
-            {
-                throw new InvalidOperationException(
-                    "Composition switcher activation requires SwitcherMode=true.");
+                File.WriteAllText(
+                    certificationPath,
+                    string.Empty,
+                    new UTF8Encoding(false));
             }
 
-            ConfigureAndCertify(lafToken);
+            ConfigureAndCertify(lafToken, runId);
+
+            if (writeCertification)
+            {
+                string certification =
+                    parsedRequestId.ToString("D", CultureInfo.InvariantCulture) +
+                    Environment.NewLine +
+                    GetCurrentProcessId().ToString(CultureInfo.InvariantCulture);
+                File.WriteAllText(
+                    certificationPath,
+                    certification,
+                    new UTF8Encoding(false));
+            }
             return true;
         }
 
         internal static void ConfigureAndCertify(string lafToken)
+        {
+            ConfigureAndCertify(lafToken, null);
+        }
+
+        private static void ConfigureAndCertify(
+            string lafToken,
+            string runId)
         {
             lock (SyncRoot)
             {
                 switcherRequested = true;
                 if (systemCompositionConfigured)
                 {
+                    if (!string.Equals(
+                            configuredLafToken,
+                            lafToken,
+                            StringComparison.Ordinal) ||
+                        (!string.IsNullOrEmpty(runId) &&
+                            !string.Equals(
+                                configuredRunId,
+                                runId,
+                                StringComparison.Ordinal)))
+                    {
+                        throw new InvalidOperationException(
+                            "Composition switcher configuration changed after selection.");
+                    }
                     return;
                 }
 
@@ -142,7 +238,7 @@ namespace Microsoft.UI.Xaml.Tests.Common
                     object systemCompositor =
                         Microsoft.UI.Composition.CompositionEngine.GetForSystemEngine(
                             compositor);
-                    if (!(systemCompositor is Windows.UI.Composition.Compositor))
+                    if (!(systemCompositor is global::Windows.UI.Composition.Compositor))
                     {
                         throw new InvalidOperationException(
                             "GetForSystemEngine did not return a Windows.UI.Composition.Compositor.");
@@ -150,6 +246,8 @@ namespace Microsoft.UI.Xaml.Tests.Common
                 }
 
                 systemCompositionConfigured = true;
+                configuredLafToken = lafToken;
+                configuredRunId = runId;
             }
         }
 
@@ -157,48 +255,6 @@ namespace Microsoft.UI.Xaml.Tests.Common
         {
             return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(value, "1", StringComparison.Ordinal);
-        }
-
-        private static string GetActivationParameter(
-            string arguments,
-            string parameterName)
-        {
-            if (string.IsNullOrEmpty(arguments))
-            {
-                return null;
-            }
-
-            string prefix = "/p:" + parameterName + "=";
-            int parameterIndex = arguments.IndexOf(
-                prefix,
-                StringComparison.OrdinalIgnoreCase);
-            if (parameterIndex < 0)
-            {
-                return null;
-            }
-
-            int valueStart = parameterIndex + prefix.Length;
-            if (valueStart < arguments.Length && arguments[valueStart] == '"')
-            {
-                valueStart++;
-                int closingQuote = arguments.IndexOf('"', valueStart);
-                if (closingQuote < 0)
-                {
-                    throw new InvalidOperationException(
-                        "Composition switcher activation contains an unterminated quoted parameter.");
-                }
-
-                return arguments.Substring(
-                    valueStart,
-                    closingQuote - valueStart);
-            }
-
-            int valueEnd = arguments.IndexOfAny(
-                new[] { ' ', '\t', '\r', '\n' },
-                valueStart);
-            return valueEnd < 0
-                ? arguments.Substring(valueStart)
-                : arguments.Substring(valueStart, valueEnd - valueStart);
         }
 
         private static string ReadBoundedText(string path)

@@ -33,7 +33,7 @@ stages:
       testPayloadArtifactName: SwitcherTestPayload
       includeWinUIGallery: false
       switcherMode: 1
-      taefExtraParameters: '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN% /reportLoadingIssue'
+      taefExtraParameters: '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN% /p:SwitcherRunId=$(Build.BuildId) /reportLoadingIssue'
 
   - job: RunSwitcherTests_x86chk
     pool:

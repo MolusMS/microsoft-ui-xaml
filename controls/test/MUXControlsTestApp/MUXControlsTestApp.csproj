@@ -102,6 +102,11 @@
   </ItemGroup>
   <ItemGroup>
     <Reference Include="@(WinUIEditWinMD)" />
+    <!-- IXP currently publishes its managed projection only for .NET 6; that assembly is forward-compatible with this .NET 8 app. -->
+    <Reference Include="Microsoft.InteractiveExperiences.Projection.dll">
+      <HintPath>$(LiftedIXPPackagePath)\lib\net6.0-windows$(CurrentLiftedIXPTargetPlatformVersion)\Microsoft.InteractiveExperiences.Projection.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <Compile Include="..\SwitcherComposition.cs" Link="SwitcherComposition.cs" />
   </ItemGroup>
   <ItemGroup>

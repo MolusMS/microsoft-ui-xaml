@@ -11,6 +11,7 @@ using System.Threading;
 
 using WEX.Logging.Interop;
 using WEX.TestExecution;
+using WEX.TestExecution.Markup;
 
 namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
 {

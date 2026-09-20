@@ -89,6 +89,15 @@ jobs:
       script: |
         Copy-Item -Path "$(Build.ArtifactStagingDirectory)\${{ parameters.testPayloadArtifactName }}_*\*" -Destination "$(Build.SourcesDirectory)" -Recurse -Force
 
+  - task: PowerShell@2
+    displayName: Remove stale packaged Switcher requests
+    inputs:
+      targetType: filePath
+      filePath: build\PipelineScripts\Remove-SwitcherLaunchRequests.ps1
+      arguments: >-
+        -TestDirectory "$(testPayloadDir)\Test"
+        -RemoveAllPackagedLaunchRequests
+
   - task: powershell@2
     displayName: Run Tests
     timeoutInMinutes: 90

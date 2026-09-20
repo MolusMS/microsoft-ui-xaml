@@ -12,7 +12,11 @@ param(
     [Parameter(Mandatory)]
     [string]$ManagedManifestPath,
 
-    [string[]]$AdditionalLaunchRequestDirectories = @()
+    [string[]]$AdditionalLaunchRequestDirectories = @(),
+
+    [string]$PackagedLaunchRequestManifestPath,
+
+    [string]$RunId
 )
 
 Set-StrictMode -Version 2.0
@@ -21,6 +25,12 @@ $ErrorActionPreference = 'Stop'
 $switcherLafToken = $env:SWITCHER_LAF_TOKEN
 if ([string]::IsNullOrEmpty($switcherLafToken)) {
     throw 'SWITCHER_LAF_TOKEN must be set before creating the launch request.'
+}
+$hasPackagedLaunchRequest =
+    -not [string]::IsNullOrWhiteSpace($PackagedLaunchRequestManifestPath)
+$hasRunId = -not [string]::IsNullOrWhiteSpace($RunId)
+if ($hasPackagedLaunchRequest -ne $hasRunId) {
+    throw 'PackagedLaunchRequestManifestPath and RunId must be provided together.'
 }
 
 Add-Type -TypeDefinition @'
@@ -93,9 +103,17 @@ public static class AppContainerSecurity
 }
 '@
 
-$appContainerSidsByValue = @{}
-foreach ($manifestPath in @($NativeManifestPath, $ManagedManifestPath)) {
-    [xml]$manifest = Get-Content -LiteralPath $manifestPath -Raw
+function Get-AppContainerIdentity {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ManifestPath
+    )
+
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+        throw "Package manifest was not found: $ManifestPath"
+    }
+
+    [xml]$manifest = Get-Content -LiteralPath $ManifestPath -Raw
     $identity = $manifest.Package.Identity
     $packageFamilyName = [AppContainerSecurity]::GetPackageFamilyName(
         [string]$identity.Name,
@@ -111,11 +129,21 @@ foreach ($manifestPath in @($NativeManifestPath, $ManagedManifestPath)) {
     try {
         $sid = [Security.Principal.SecurityIdentifier]::new(
             $appContainerSidPointer)
-        $appContainerSidsByValue[$sid.Value] = $sid
     }
     finally {
         [void][AppContainerSecurity]::FreeSid($appContainerSidPointer)
     }
+
+    return [PSCustomObject]@{
+        PackageFamilyName = $packageFamilyName
+        Sid = $sid
+    }
+}
+
+$appContainerSidsByValue = @{}
+foreach ($manifestPath in @($NativeManifestPath, $ManagedManifestPath)) {
+    $identity = Get-AppContainerIdentity -ManifestPath $manifestPath
+    $appContainerSidsByValue[$identity.Sid.Value] = $identity.Sid
 }
 
 $acl = [Security.AccessControl.DirectorySecurity]::new()
@@ -175,7 +203,80 @@ foreach ($requestDirectory in $requestDirectories) {
         [Text.UTF8Encoding]::new($false))
 }
 
+$packagedRequestCount = 0
+if ($hasPackagedLaunchRequest) {
+    $packagedIdentity = Get-AppContainerIdentity `
+        -ManifestPath $PackagedLaunchRequestManifestPath
+    $commonApplicationData = [Environment]::GetFolderPath(
+        [Environment+SpecialFolder]::CommonApplicationData)
+    if ([string]::IsNullOrWhiteSpace($commonApplicationData)) {
+        throw 'The common application data directory is unavailable.'
+    }
+    $packagedRequestDirectory = Join-Path `
+        $commonApplicationData `
+        (Join-Path `
+            'Microsoft\WinUI\CompositionSwitcher\Requests' `
+            (Join-Path $packagedIdentity.PackageFamilyName '.winui-switcher'))
+    Write-Host (
+        '##vso[task.setvariable variable=SwitcherPackagedLaunchRequestDirectory]' +
+        $packagedRequestDirectory)
+
+    $packagedRequestParent = Split-Path -Parent $packagedRequestDirectory
+    New-Item -ItemType Directory -Path $packagedRequestParent -Force |
+        Out-Null
+    if (Test-Path -LiteralPath $packagedRequestDirectory) {
+        Remove-Item -LiteralPath $packagedRequestDirectory -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $packagedRequestDirectory -Force |
+        Out-Null
+
+    $packagedDirectoryAcl = [Security.AccessControl.DirectorySecurity]::new()
+    $packagedDirectoryAcl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @(
+            $currentUser,
+            [Security.Principal.SecurityIdentifier]::new('S-1-5-18'))) {
+        $packagedDirectoryAcl.AddAccessRule(
+            [Security.AccessControl.FileSystemAccessRule]::new(
+                $sid,
+                $fullControl,
+                $inheritance,
+                $propagation,
+                $allow))
+    }
+    $packagedDirectoryAcl.AddAccessRule(
+        [Security.AccessControl.FileSystemAccessRule]::new(
+            $packagedIdentity.Sid,
+            $readAndExecute,
+            $inheritance,
+            $propagation,
+            $allow))
+    Set-Acl `
+        -LiteralPath $packagedRequestDirectory `
+        -AclObject $packagedDirectoryAcl
+
+    [IO.File]::WriteAllText(
+        (Join-Path $packagedRequestDirectory 'system-backend'),
+        $switcherLafToken,
+        [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText(
+        (Join-Path $packagedRequestDirectory 'request-id'),
+        $requestId,
+        [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText(
+        (Join-Path $packagedRequestDirectory 'run-id'),
+        $RunId,
+        [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText(
+        (Join-Path $packagedRequestDirectory 'expires-at'),
+        [DateTimeOffset]::UtcNow.AddHours(3).ToString(
+            'O',
+            [Globalization.CultureInfo]::InvariantCulture),
+        [Text.UTF8Encoding]::new($false))
+    $packagedRequestCount = 1
+}
+
+$totalRequestCount = $requestDirectories.Count + $packagedRequestCount
 Write-Host (
     'Configured {0} ACL-protected Switcher launch request director{1}.' -f
-    $requestDirectories.Count,
-    $(if ($requestDirectories.Count -eq 1) { 'y' } else { 'ies' }))
+    $totalRequestCount,
+    $(if ($totalRequestCount -eq 1) { 'y' } else { 'ies' }))
