@@ -4,10 +4,13 @@
 #include "pch.h"
 #include "SwitcherComposition.h"
 
+#include <Microsoft.UI.Composition.h>
 #include <winrt/Microsoft.UI.Composition.h>
 #include <winrt/Windows.ApplicationModel.h>
 #include <wil/resource.h>
 #include <wil/result.h>
+#include <wrl/client.h>
+#include <wrl/wrappers/corewrappers.h>
 
 #include <array>
 #include <string>
@@ -176,15 +179,28 @@ bool SwitcherComposition::ConfigureAndCertifyFromLaunchRequest()
         unlockResult.Status() !=
             winrt::Windows::ApplicationModel::LimitedAccessFeatureStatus::Available);
 
-    THROW_HR_IF(
-        E_FAIL,
-        !winrt::Microsoft::UI::Composition::CompositionEngine::TrySetProcessEngine(
-            winrt::Microsoft::UI::Composition::CompositionEngineType::System));
+    Microsoft::WRL::ComPtr<
+        ABI::Microsoft::UI::Composition::ICompositionEngineStatics>
+        compositionEngineStatics;
+    THROW_IF_FAILED(RoGetActivationFactory(
+        Microsoft::WRL::Wrappers::HStringReference(
+            RuntimeClass_Microsoft_UI_Composition_CompositionEngine).Get(),
+        IID_PPV_ARGS(compositionEngineStatics.ReleaseAndGetAddressOf())));
+
+    boolean processEngineSet = false;
+    THROW_IF_FAILED(compositionEngineStatics->TrySetProcessEngine(
+        ABI::Microsoft::UI::Composition::CompositionEngineType_System,
+        &processEngineSet));
+    THROW_HR_IF(E_FAIL, !processEngineSet);
 
     auto compositor = winrt::Microsoft::UI::Composition::Compositor();
-    const auto systemCompositor =
-        winrt::Microsoft::UI::Composition::CompositionEngine::GetForSystemEngine(
-            compositor);
+    Microsoft::WRL::ComPtr<::IInspectable> systemCompositorAbi;
+    THROW_IF_FAILED(compositionEngineStatics->GetForSystemEngine(
+        reinterpret_cast<::IInspectable*>(winrt::get_abi(compositor)),
+        systemCompositorAbi.ReleaseAndGetAddressOf()));
+    winrt::Windows::Foundation::IInspectable systemCompositor{
+        systemCompositorAbi.Detach(),
+        winrt::take_ownership_from_abi };
     THROW_HR_IF(
         E_FAIL,
         !systemCompositor.try_as<winrt::Windows::UI::Composition::Compositor>());
