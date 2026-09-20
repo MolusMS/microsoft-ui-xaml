@@ -10,7 +10,7 @@
 
 namespace
 {
-    bool IsTrue(const WEX::Common::String& value)
+    bool IsTrue(WEX::Common::String& value)
     {
         const auto buffer = reinterpret_cast<const wchar_t*>(value.GetBuffer());
         return buffer != nullptr &&
