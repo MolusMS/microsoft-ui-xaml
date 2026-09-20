@@ -5,11 +5,16 @@
 #include "SwitcherTestProcess.h"
 
 #include <RuntimeParameters.h>
+#include <mutex>
 #include <string>
 #include <thread>
 
 namespace
 {
+    bool systemCompositionSelected = false;
+    bool systemCompositionCertified = false;
+    std::mutex systemCompositionMutex;
+
     bool IsTrue(WEX::Common::String& value)
     {
         const auto buffer = reinterpret_cast<const wchar_t*>(value.GetBuffer());
@@ -24,9 +29,9 @@ namespace
     }
 }
 
-void SwitcherTestProcess::SelectAndCertifySystemCompositionIfRequested()
+void SwitcherTestProcess::SelectSystemCompositionIfRequested()
 {
-    static bool systemCompositionCertified = false;
+    std::lock_guard<std::mutex> lock(systemCompositionMutex);
 
     WEX::Common::String switcherMode;
     const bool switcherRequested =
@@ -53,7 +58,7 @@ void SwitcherTestProcess::SelectAndCertifySystemCompositionIfRequested()
         return;
     }
 
-    if (systemCompositionCertified)
+    if (systemCompositionSelected)
     {
         return;
     }
@@ -98,15 +103,7 @@ void SwitcherTestProcess::SelectAndCertifySystemCompositionIfRequested()
             }
             else
             {
-                auto compositor = ref new Microsoft::UI::Composition::Compositor();
-                Platform::Object^ systemCompositor =
-                    Microsoft::UI::Composition::CompositionEngine::GetForSystemEngine(
-                        compositor);
-                selectionResult =
-                    dynamic_cast<::Windows::UI::Composition::Compositor^>(
-                        systemCompositor) != nullptr
-                    ? S_OK
-                    : E_FAIL;
+                selectionResult = S_OK;
             }
         }
         catch (Platform::Exception^ exception)
@@ -125,7 +122,51 @@ void SwitcherTestProcess::SelectAndCertifySystemCompositionIfRequested()
     {
         Fail(
             selectionResult,
-            L"Win32Explicit System composition selection or certification failed.");
+            L"Win32Explicit System composition selection failed.");
+    }
+
+    systemCompositionSelected = true;
+    WEX::Logging::Log::Comment(
+        L"SwitcherMode: Win32Explicit test process selected System composition; certification is deferred to its initialized XAML thread.");
+}
+
+void SwitcherTestProcess::CertifySystemCompositionIfRequested()
+{
+    std::lock_guard<std::mutex> lock(systemCompositionMutex);
+
+    if (!systemCompositionSelected ||
+        systemCompositionCertified)
+    {
+        return;
+    }
+
+    try
+    {
+        WEX::Logging::Log::Comment(
+            L"SwitcherMode: Win32Explicit test process is certifying System composition on its initialized XAML thread.");
+        auto compositor = ref new Microsoft::UI::Composition::Compositor();
+        Platform::Object^ systemCompositor =
+            Microsoft::UI::Composition::CompositionEngine::GetForSystemEngine(
+                compositor);
+        if (dynamic_cast<::Windows::UI::Composition::Compositor^>(
+                systemCompositor) == nullptr)
+        {
+            Fail(
+                E_FAIL,
+                L"Win32Explicit System composition certification failed.");
+        }
+    }
+    catch (Platform::Exception^ exception)
+    {
+        Fail(
+            exception->HResult,
+            L"Win32Explicit System composition certification failed.");
+    }
+    catch (...)
+    {
+        Fail(
+            E_FAIL,
+            L"Win32Explicit System composition certification failed.");
     }
 
     systemCompositionCertified = true;

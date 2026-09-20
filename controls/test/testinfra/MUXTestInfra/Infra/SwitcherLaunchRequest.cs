@@ -21,6 +21,7 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
         private const string TokenFileName = "system-backend";
         private const string RequestIdFileName = "request-id";
         private const string CertificationFileName = "system-backend.certified";
+        private const string FailureFileName = "system-backend.error";
         private const int MaximumRequestValueSize = 64 * 1024;
 
         private static readonly object CertifiedProcessesLock = new object();
@@ -28,6 +29,7 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
 
         private readonly string requestId;
         private readonly string certificationPath;
+        private readonly string failurePath;
 
         private SwitcherLaunchRequest(string requestDirectory, string requestId)
         {
@@ -35,6 +37,9 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
             this.certificationPath = Path.Combine(
                 requestDirectory,
                 CertificationFileName);
+            this.failurePath = Path.Combine(
+                requestDirectory,
+                FailureFileName);
         }
 
         internal static bool IsEnabled(TestContext testContext)
@@ -132,7 +137,7 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
             var request = new SwitcherLaunchRequest(
                 requestDirectory,
                 parsedRequestId.ToString("D"));
-            request.DeleteCertification();
+            request.DeleteResponse();
             return request;
         }
 
@@ -148,11 +153,19 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
         {
             var timeout = Stopwatch.StartNew();
             while (!File.Exists(certificationPath) &&
+                !File.Exists(failurePath) &&
                 timeout.Elapsed < TimeSpan.FromSeconds(10))
             {
                 Thread.Sleep(100);
             }
 
+            if (File.Exists(failurePath))
+            {
+                throw new InvalidOperationException(
+                    processName +
+                    " failed before System composition certification: " +
+                    ReadBoundedText(failurePath));
+            }
             if (!File.Exists(certificationPath))
             {
                 throw new InvalidOperationException(
@@ -191,9 +204,20 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
                 processId);
         }
 
+        internal void ThrowIfFailed(string processName)
+        {
+            if (File.Exists(failurePath))
+            {
+                throw new InvalidOperationException(
+                    processName +
+                    " failed before System composition certification: " +
+                    ReadBoundedText(failurePath));
+            }
+        }
+
         public void Dispose()
         {
-            DeleteCertification();
+            DeleteResponse();
         }
 
         private static string AssemblyLocation
@@ -232,11 +256,19 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
             }
         }
 
-        private void DeleteCertification()
+        private void DeleteResponse()
         {
-            if (File.Exists(certificationPath))
+            DeleteIfPresent(certificationPath);
+            DeleteIfPresent(certificationPath + ".tmp");
+            DeleteIfPresent(failurePath);
+            DeleteIfPresent(failurePath + ".tmp");
+        }
+
+        private static void DeleteIfPresent(string path)
+        {
+            if (File.Exists(path))
             {
-                File.Delete(certificationPath);
+                File.Delete(path);
             }
         }
     }

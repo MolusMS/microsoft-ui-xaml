@@ -5,5 +5,6 @@
 
 namespace SwitcherTestProcess
 {
-    void SelectAndCertifySystemCompositionIfRequested();
+    void SelectSystemCompositionIfRequested();
+    void CertifySystemCompositionIfRequested();
 }

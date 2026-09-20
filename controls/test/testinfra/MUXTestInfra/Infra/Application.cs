@@ -336,7 +336,15 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
             {
                 Log.Comment("Launching app {0}", _appName);
 
-                coreWindow = LaunchApp();
+                try
+                {
+                    coreWindow = LaunchApp();
+                }
+                catch
+                {
+                    switcherRequest?.ThrowIfFailed(_appName);
+                    throw;
+                }
 
                 Verify.IsNotNull(coreWindow, "coreWindow");
                 if (switcherRequest != null)

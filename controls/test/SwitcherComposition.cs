@@ -22,13 +22,18 @@ namespace Microsoft.UI.Xaml.Tests.Common
         private const string RunIdFileName = "run-id";
         private const string ExpirationFileName = "expires-at";
         private const string CertificationFileName = "system-backend.certified";
+        private const string FailureFileName = "system-backend.error";
         private const int MaximumRequestValueSize = 64 * 1024;
 
         private static readonly object SyncRoot = new object();
-        private static bool systemCompositionConfigured;
+        private static bool systemCompositionSelected;
+        private static bool systemCompositionCertified;
         private static bool switcherRequested;
         private static string configuredLafToken;
         private static string configuredRunId;
+        private static string pendingCertificationPath;
+        private static string pendingFailurePath;
+        private static string pendingRequestId;
 
         internal static bool IsConfigured
         {
@@ -36,7 +41,7 @@ namespace Microsoft.UI.Xaml.Tests.Common
             {
                 lock (SyncRoot)
                 {
-                    return systemCompositionConfigured;
+                    return systemCompositionCertified;
                 }
             }
         }
@@ -52,19 +57,19 @@ namespace Microsoft.UI.Xaml.Tests.Common
             }
         }
 
-        internal static bool ConfigureAndCertifyFromLaunchRequest()
+        internal static bool ConfigureFromLaunchRequest()
         {
             string requestDirectory = Path.Combine(
                 AppContext.BaseDirectory,
                 RequestDirectoryName);
-            return ConfigureAndCertifyFromLaunchRequest(
+            return ConfigureFromLaunchRequest(
                 requestDirectory,
                 null,
                 null,
                 true);
         }
 
-        internal static bool ConfigureAndCertifyFromPackagedLaunchRequest()
+        internal static bool ConfigureFromPackagedLaunchRequest()
         {
             // TAEF removes package data before activation, so this request must live outside LocalState.
             string programData =
@@ -83,7 +88,7 @@ namespace Microsoft.UI.Xaml.Tests.Common
                 "Requests",
                 Package.Current.Id.FamilyName,
                 RequestDirectoryName);
-            return ConfigureAndCertifyFromLaunchRequest(
+            return ConfigureFromLaunchRequest(
                 requestDirectory,
                 RunIdFileName,
                 ExpirationFileName,
@@ -94,7 +99,7 @@ namespace Microsoft.UI.Xaml.Tests.Common
         {
             lock (SyncRoot)
             {
-                return systemCompositionConfigured &&
+                return systemCompositionCertified &&
                     string.Equals(
                         configuredLafToken,
                         lafToken,
@@ -106,7 +111,7 @@ namespace Microsoft.UI.Xaml.Tests.Common
             }
         }
 
-        private static bool ConfigureAndCertifyFromLaunchRequest(
+        private static bool ConfigureFromLaunchRequest(
             string requestDirectory,
             string runIdFileName,
             string expirationFileName,
@@ -155,43 +160,63 @@ namespace Microsoft.UI.Xaml.Tests.Common
             string certificationPath = Path.Combine(
                 requestDirectory,
                 CertificationFileName);
+            string failurePath = Path.Combine(
+                requestDirectory,
+                FailureFileName);
             if (writeCertification)
             {
-                File.WriteAllText(
-                    certificationPath,
-                    string.Empty,
-                    new UTF8Encoding(false));
+                if (File.Exists(certificationPath))
+                {
+                    File.Delete(certificationPath);
+                }
+                if (File.Exists(failurePath))
+                {
+                    File.Delete(failurePath);
+                }
             }
 
-            ConfigureAndCertify(lafToken, runId);
-
-            if (writeCertification)
+            lock (SyncRoot)
             {
-                string certification =
-                    parsedRequestId.ToString("D", CultureInfo.InvariantCulture) +
-                    Environment.NewLine +
-                    GetCurrentProcessId().ToString(CultureInfo.InvariantCulture);
-                File.WriteAllText(
-                    certificationPath,
-                    certification,
-                    new UTF8Encoding(false));
+                pendingCertificationPath = writeCertification
+                    ? certificationPath
+                    : null;
+                pendingFailurePath = writeCertification
+                    ? failurePath
+                    : null;
+                pendingRequestId = parsedRequestId.ToString(
+                    "D",
+                    CultureInfo.InvariantCulture);
             }
+
+            try
+            {
+                Configure(lafToken, runId);
+            }
+            catch (Exception exception)
+            {
+                WritePendingFailure(
+                    "selection",
+                    exception,
+                    lafToken);
+                throw;
+            }
+
             return true;
         }
 
-        internal static void ConfigureAndCertify(string lafToken)
+        internal static void Configure(string lafToken)
         {
-            ConfigureAndCertify(lafToken, null);
+            Configure(lafToken, null);
         }
 
-        private static void ConfigureAndCertify(
+        private static void Configure(
             string lafToken,
             string runId)
         {
             lock (SyncRoot)
             {
                 switcherRequested = true;
-                if (systemCompositionConfigured)
+                if (systemCompositionSelected)
                 {
                     if (!string.Equals(
                             configuredLafToken,
@@ -233,21 +258,123 @@ namespace Microsoft.UI.Xaml.Tests.Common
                         "TrySetProcessEngine(System) did not engage in the test application process.");
                 }
 
-                using (var compositor = new Microsoft.UI.Composition.Compositor())
-                {
-                    object systemCompositor =
-                        Microsoft.UI.Composition.CompositionEngine.GetForSystemEngine(
-                            compositor);
-                    if (!(systemCompositor is global::Windows.UI.Composition.Compositor))
-                    {
-                        throw new InvalidOperationException(
-                            "GetForSystemEngine did not return a Windows.UI.Composition.Compositor.");
-                    }
-                }
-
-                systemCompositionConfigured = true;
+                systemCompositionSelected = true;
                 configuredLafToken = lafToken;
                 configuredRunId = runId;
+            }
+        }
+
+        internal static void Certify()
+        {
+            lock (SyncRoot)
+            {
+                if (systemCompositionCertified)
+                {
+                    return;
+                }
+                if (!systemCompositionSelected)
+                {
+                    throw new InvalidOperationException(
+                        "System composition must be selected before it can be certified.");
+                }
+
+                try
+                {
+                    using (var compositor = new Microsoft.UI.Composition.Compositor())
+                    {
+                        object systemCompositor =
+                            Microsoft.UI.Composition.CompositionEngine.GetForSystemEngine(
+                                compositor);
+                        if (!(systemCompositor is global::Windows.UI.Composition.Compositor))
+                        {
+                            throw new InvalidOperationException(
+                                "GetForSystemEngine did not return a Windows.UI.Composition.Compositor.");
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(pendingCertificationPath))
+                    {
+                        string certification =
+                            pendingRequestId +
+                            Environment.NewLine +
+                            GetCurrentProcessId().ToString(
+                                CultureInfo.InvariantCulture);
+                        WriteResponse(
+                            pendingCertificationPath,
+                            certification);
+                    }
+
+                    systemCompositionCertified = true;
+                }
+                catch (Exception exception)
+                {
+                    WritePendingFailure(
+                        "certification",
+                        exception,
+                        configuredLafToken);
+                    throw;
+                }
+            }
+        }
+
+        private static void WritePendingFailure(
+            string phase,
+            Exception exception,
+            string lafToken)
+        {
+            string failurePath = pendingFailurePath;
+            if (string.IsNullOrEmpty(failurePath))
+            {
+                return;
+            }
+
+            string failure =
+                "Composition switcher " +
+                phase +
+                " failed: " +
+                exception.GetType().FullName +
+                " (HRESULT=0x" +
+                exception.HResult.ToString("X8", CultureInfo.InvariantCulture) +
+                "): " +
+                exception.Message +
+                Environment.NewLine +
+                exception.StackTrace;
+            if (!string.IsNullOrEmpty(lafToken))
+            {
+                failure = failure.Replace(
+                    lafToken,
+                    "***");
+            }
+            WriteResponse(
+                failurePath,
+                failure);
+        }
+
+        private static void WriteResponse(
+            string path,
+            string value)
+        {
+            string temporaryPath = path + ".tmp";
+            try
+            {
+                File.WriteAllText(
+                    temporaryPath,
+                    value,
+                    new UTF8Encoding(false));
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+                File.Move(
+                    temporaryPath,
+                    path);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
             }
         }
 

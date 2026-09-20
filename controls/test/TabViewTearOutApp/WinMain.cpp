@@ -20,7 +20,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     g_hInst = hInstance;
     winrt::init_apartment(winrt::apartment_type::single_threaded);
-    SwitcherComposition::ConfigureAndCertifyFromLaunchRequest();
+    SwitcherComposition::ConfigureFromLaunchRequest();
 
 #ifdef MULTITHREADED_WINDOWS
     MainWindow::CreateNewWindow(nCmdShow);

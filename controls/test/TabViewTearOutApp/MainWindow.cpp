@@ -3,6 +3,7 @@
 #include "App.h"
 #include "MainWindow.h"
 #include "DesktopWindow.h"
+#include "SwitcherComposition.h"
 #include <Psapi.h>
 #include "XamlUtil.h"
 
@@ -53,6 +54,7 @@ HWND MainWindow::CreateNewWindow(int nCmdShow, winrt::com_array<winrt::IInspecta
             auto dqc = winrt::Microsoft::UI::Dispatching::DispatcherQueueController::CreateOnCurrentThread();
 
             MainWindow newWindow(nCmdShow, stringList);
+            SwitcherComposition::Certify();
             newWindowHwnd = newWindow.GetHandle();
             ::SetEvent(windowReadyEvent);
             newWindow.Run();
@@ -66,6 +68,7 @@ HWND MainWindow::CreateNewWindow(int nCmdShow, winrt::com_array<winrt::IInspecta
     return newWindowHwnd;
 #else
     auto newWindow = new MainWindow(nCmdShow, stringList);
+    SwitcherComposition::Certify();
     return newWindow->GetHandle();
 #endif
 }

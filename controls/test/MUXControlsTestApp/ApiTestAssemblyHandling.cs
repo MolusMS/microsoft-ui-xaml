@@ -48,15 +48,10 @@ namespace MUXControlsTestApp
                     "MUXControls API tests must receive SwitcherMode when the pipeline provides its credential.");
             }
 
-            if (switcherRequested)
-            {
-                string lafToken = testContext.Properties.Contains("SwitcherLafToken")
-                    ? Convert.ToString(testContext.Properties["SwitcherLafToken"])
-                    : null;
-                SwitcherComposition.ConfigureAndCertify(lafToken);
-                Log.Comment(
-                    "SwitcherMode: MUXControlsTestApp API process selected and certified System composition.");
-            }
+            string switcherLafToken = switcherRequested &&
+                testContext.Properties.Contains("SwitcherLafToken")
+                ? Convert.ToString(testContext.Properties["SwitcherLafToken"])
+                : null;
 
             if (testContext.Properties.Contains("WaitForDebugger") || testContext.Properties.Contains("WaitForAppDebugger"))
             {
@@ -73,19 +68,49 @@ namespace MUXControlsTestApp
                 DebugBreak();
             }
 
-            ApiTestBase.EnableAllXamlOptionalChanges();
-
             // This is the entry point for API tests rather than Program.Main, so we'll call that on another thread
             // in order to initialize the XAML application for API testing.  It needs to be on its own thread because
             // it doesn't return - it contains the application loop.
 #nullable enable
+            Exception? appStartupException = null;
+            var appStartupFailedEvent = new ManualResetEvent(false);
             _ = ThreadPool.QueueUserWorkItem((object? param) =>
             {
-                Program.Main(Array.Empty<string>());
+                try
+                {
+                    Program.Run(
+                        Array.Empty<string>(),
+                        switcherLafToken,
+                        true);
+                }
+                catch (Exception exception)
+                {
+                    appStartupException = exception;
+                    appStartupFailedEvent.Set();
+                }
             });
 #nullable restore
 
-            App.AppLaunchedEvent.WaitOne();
+            int startupResult = WaitHandle.WaitAny(
+                new WaitHandle[]
+                {
+                    App.AppLaunchedEvent,
+                    appStartupFailedEvent
+                });
+            if (startupResult == 1)
+            {
+                throw new InvalidOperationException(
+                    "MUXControlsTestApp API startup failed before XAML activation.",
+                    appStartupException);
+            }
+            if (switcherRequested)
+            {
+                Verify.IsTrue(
+                    SwitcherComposition.IsConfigured,
+                    "MUXControlsTestApp API process must certify System composition before tests run.");
+                Log.Comment(
+                    "SwitcherMode: MUXControlsTestApp API process selected and certified System composition.");
+            }
         }
 
         [DllImport("kernel32.dll")]
