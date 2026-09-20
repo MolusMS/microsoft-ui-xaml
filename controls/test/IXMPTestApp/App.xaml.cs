@@ -17,6 +17,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Common;
+using Microsoft.UI.Xaml.Tests.Common;
 
 using WEX.TestExecution;
 using WEX.TestExecution.Markup;
@@ -45,6 +46,8 @@ namespace IXMPTestApp
         /// <param name="e">Details about the launch request and process.</param>
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs e)
         {
+            SwitcherComposition.ConfigureAndCertifyFromActivationArguments(e.Arguments);
+
             Frame rootFrame = Window.Current.Content as Frame;
 
             // Do not repeat app initialization when the Window already has content,

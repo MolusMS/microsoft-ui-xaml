@@ -10,7 +10,9 @@ param(
     [string]$NativeManifestPath,
 
     [Parameter(Mandatory)]
-    [string]$ManagedManifestPath
+    [string]$ManagedManifestPath,
+
+    [string[]]$AdditionalLaunchRequestDirectories = @()
 )
 
 Set-StrictMode -Version 2.0
@@ -116,8 +118,6 @@ foreach ($manifestPath in @($NativeManifestPath, $ManagedManifestPath)) {
     }
 }
 
-New-Item -ItemType Directory -Path $LaunchRequestDirectory -Force |
-    Out-Null
 $acl = [Security.AccessControl.DirectorySecurity]::new()
 $acl.SetAccessRuleProtection($true, $false)
 $inheritance =
@@ -148,13 +148,34 @@ foreach ($sid in @($appContainerSidsByValue.Values)) {
             $propagation,
             $allow))
 }
-Set-Acl -LiteralPath $LaunchRequestDirectory -AclObject $acl
+$requestId = [Guid]::NewGuid().ToString('D')
+$requestDirectories = @($LaunchRequestDirectory) +
+    @($AdditionalLaunchRequestDirectories)
+foreach ($requestDirectory in $requestDirectories) {
+    $parentDirectory = Split-Path -Parent $requestDirectory
+    if (-not (Test-Path -LiteralPath $parentDirectory -PathType Container)) {
+        throw "Switcher launch request parent directory was not found: $parentDirectory"
+    }
 
-$launchRequestPath = Join-Path $LaunchRequestDirectory 'system-backend'
-if (Test-Path -LiteralPath $launchRequestPath) {
-    Remove-Item -LiteralPath $launchRequestPath -Force
+    if (Test-Path -LiteralPath $requestDirectory) {
+        Remove-Item -LiteralPath $requestDirectory -Recurse -Force
+    }
+
+    New-Item -ItemType Directory -Path $requestDirectory -Force |
+        Out-Null
+    Set-Acl -LiteralPath $requestDirectory -AclObject $acl
+
+    [IO.File]::WriteAllText(
+        (Join-Path $requestDirectory 'system-backend'),
+        $switcherLafToken,
+        [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText(
+        (Join-Path $requestDirectory 'request-id'),
+        $requestId,
+        [Text.UTF8Encoding]::new($false))
 }
-[IO.File]::WriteAllText(
-    $launchRequestPath,
-    $switcherLafToken,
-    [Text.UTF8Encoding]::new($false))
+
+Write-Host (
+    'Configured {0} ACL-protected Switcher launch request director{1}.' -f
+    $requestDirectories.Count,
+    $(if ($requestDirectories.Count -eq 1) { 'y' } else { 'ies' }))

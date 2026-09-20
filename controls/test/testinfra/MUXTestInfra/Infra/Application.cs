@@ -128,6 +128,15 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
             UIObject topWindowObj = null;
             bool didFindWindow = UIObject.Root.Children.TryFind(topWindowCondition, out topWindowObj);
 
+            if (doLaunch &&
+                didFindWindow &&
+                SwitcherLaunchRequest.IsEnabled(TestEnvironment.TestContext) &&
+                !SwitcherLaunchRequest.IsCertifiedProcess(topWindowObj.ProcessId))
+            {
+                throw new InvalidOperationException(
+                    "Switcher mode found an existing test application process that was not certified.");
+            }
+
             // Only try to launch the app if we couldn't find the window.
             if (doLaunch && !didFindWindow)
             {
@@ -318,33 +327,45 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
                 return null;
             }
 
-            Log.Comment("Launching app {0}", _appName);
-
-            coreWindow = LaunchApp();
-
-            Verify.IsNotNull(coreWindow, "coreWindow");
-
-            Log.Comment("Waiting for the close-app invoker to be found to signal that the app has launched successfully...");
-
-            for (int retries = 0; retries < 5; ++retries)
+            using (SwitcherLaunchRequest switcherRequest =
+                SwitcherLaunchRequest.Prepare(
+                    TestEnvironment.TestContext,
+                    _isPackaged,
+                    _packageFamilyName,
+                    _unpackagedExePath))
             {
-                UIObject obj;
-                coreWindow.Descendants.TryFind(UICondition.Create("@AutomationId='__CloseAppInvoker'"), out obj);
-                if (obj != null)
+                Log.Comment("Launching app {0}", _appName);
+
+                coreWindow = LaunchApp();
+
+                Verify.IsNotNull(coreWindow, "coreWindow");
+                if (switcherRequest != null)
                 {
-                    Log.Comment("Invoker found!");
-                    break;
+                    switcherRequest.Verify(coreWindow.ProcessId, _appName);
                 }
 
-                Log.Comment("Invoker not found. Sleeping for 500 ms before trying again...");
-                Thread.Sleep(500);
+                Log.Comment("Waiting for the close-app invoker to be found to signal that the app has launched successfully...");
+
+                for (int retries = 0; retries < 5; ++retries)
+                {
+                    UIObject obj;
+                    coreWindow.Descendants.TryFind(UICondition.Create("@AutomationId='__CloseAppInvoker'"), out obj);
+                    if (obj != null)
+                    {
+                        Log.Comment("Invoker found!");
+                        break;
+                    }
+
+                    Log.Comment("Invoker not found. Sleeping for 500 ms before trying again...");
+                    Thread.Sleep(500);
+                }
+
+                var unhandledExceptionReportingTextBox = new Edit(coreWindow.Descendants.Find(UICondition.Create("@AutomationId='__UnhandledExceptionReportingTextBox'")));
+                var valueChangedSource = new PropertyChangedEventSource(unhandledExceptionReportingTextBox, Scope.Element, UIProperty.Get("Value.Value"));
+                valueChangedSource.Start(new TestAppCrashDetector());
+
+                Log.Comment("15056441 tracing, device family:" + global::Windows.System.Profile.AnalyticsInfo.VersionInfo.DeviceFamily);
             }
-
-            var unhandledExceptionReportingTextBox = new Edit(coreWindow.Descendants.Find(UICondition.Create("@AutomationId='__UnhandledExceptionReportingTextBox'")));
-            var valueChangedSource = new PropertyChangedEventSource(unhandledExceptionReportingTextBox, Scope.Element, UIProperty.Get("Value.Value"));
-            valueChangedSource.Start(new TestAppCrashDetector());
-
-            Log.Comment("15056441 tracing, device family:" + global::Windows.System.Profile.AnalyticsInfo.VersionInfo.DeviceFamily);
 
             return coreWindow;
         }

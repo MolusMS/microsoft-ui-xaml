@@ -19,6 +19,7 @@ using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Private.Media;
 using Common;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Xaml.Tests.Common;
 
 using WEX.TestExecution;
 using WEX.TestExecution.Markup;
@@ -40,6 +41,11 @@ namespace MUXControlsTestApp
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Required parameter.")]
         public static void Main(string[] args)
         {
+            if (!SwitcherComposition.IsConfigured)
+            {
+                SwitcherComposition.ConfigureAndCertifyFromLaunchRequest();
+            }
+
             // In 19H1 and above, WinRT activation is set up for us.  Below 19H1, we need to manually set up detours.
             if (PlatformConfiguration.IsOSVersionLessThan(OSVersion.NineteenH1))
             {

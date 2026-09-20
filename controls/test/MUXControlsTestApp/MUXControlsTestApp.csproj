@@ -102,6 +102,7 @@
   </ItemGroup>
   <ItemGroup>
     <Reference Include="@(WinUIEditWinMD)" />
+    <Compile Include="..\SwitcherComposition.cs" Link="SwitcherComposition.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="$(MUXProjectRoot)build\WinUITest.pfx" />

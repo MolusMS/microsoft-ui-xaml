@@ -133,6 +133,9 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
+    <Compile Include="..\SwitcherComposition.cs">
+      <Link>SwitcherComposition.cs</Link>
+    </Compile>
     <Compile Include="Tests\MetadataProviderTests.cs" />
     <Compile Include="WaitForDebugger.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

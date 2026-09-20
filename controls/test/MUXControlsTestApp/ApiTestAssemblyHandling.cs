@@ -11,6 +11,7 @@ using WEX.TestExecution;
 using WEX.TestExecution.Markup;
 using WEX.Logging.Interop;
 using MUXControlsTestApp.Utilities;
+using Microsoft.UI.Xaml.Tests.Common;
 
 namespace MUXControlsTestApp
 {
@@ -30,6 +31,33 @@ namespace MUXControlsTestApp
         [TestProperty("UAP:Host", "PackagedCWA")]
         public static void AssemblyInitialize(TestContext testContext)
         {
+            bool switcherRequested =
+                testContext.Properties.Contains("SwitcherMode") &&
+                SwitcherComposition.IsTrue(
+                    Convert.ToString(testContext.Properties["SwitcherMode"]));
+            bool switcherExpected =
+                testContext.Properties.Contains("SwitcherLafToken") ||
+                !string.IsNullOrEmpty(
+                    Environment.GetEnvironmentVariable(
+                        "SWITCHER_LAF_TOKEN",
+                        EnvironmentVariableTarget.Process));
+            if (switcherExpected)
+            {
+                Verify.IsTrue(
+                    switcherRequested,
+                    "MUXControls API tests must receive SwitcherMode when the pipeline provides its credential.");
+            }
+
+            if (switcherRequested)
+            {
+                string lafToken = testContext.Properties.Contains("SwitcherLafToken")
+                    ? Convert.ToString(testContext.Properties["SwitcherLafToken"])
+                    : null;
+                SwitcherComposition.ConfigureAndCertify(lafToken);
+                Log.Comment(
+                    "SwitcherMode: MUXControlsTestApp API process selected and certified System composition.");
+            }
+
             if (testContext.Properties.Contains("WaitForDebugger") || testContext.Properties.Contains("WaitForAppDebugger"))
             {
                 var processId = Windows.System.Diagnostics.ProcessDiagnosticInfo.GetForCurrentProcess().ProcessId;

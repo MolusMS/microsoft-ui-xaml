@@ -6,9 +6,11 @@
 # Self-contained (modeled on WinUI-PGO-Train-Stage.yml, which uses the same ge_current pool) so
 # it does not touch the shared per-OS RunTests matrix.
 #
-# This stage runs the SwitcherTests engagement certifiers, then independently probes the
-# master-backed UAP and WPF suites. Each broad probe must certify System composition before
-# functional failures are treated as non-gating.
+# This stage certifies the native UAP, managed UAP, and WPF host paths, then runs the same
+# x86chk DevTestSuite work-item matrix as the normal Win11-25H2 test pass. Application-owned
+# and Win32Explicit processes fail closed unless they independently certify System composition;
+# isolated unit tests remain unchanged because they do not initialize composition. The matrix
+# executes on ge_current because that image carries the CompositionEngine limited-access feature.
 parameters:
   - name: testSelector
     type: string
@@ -23,6 +25,16 @@ stages:
   dependsOn: Build
   condition: not(failed())
   jobs:
+  - template: WinUI-CreateTestPayload-Job.yml
+    parameters:
+      runTestJobName: CreateSwitcherTestPayload
+      pipelineKind: QuickPR
+      testSuite: DevTestSuite
+      testPayloadArtifactName: SwitcherTestPayload
+      includeWinUIGallery: false
+      switcherMode: 1
+      taefExtraParameters: '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN% /reportLoadingIssue'
+
   - job: RunSwitcherTests_x86chk
     pool:
       type: windows
@@ -175,11 +187,8 @@ stages:
       inputs:
         targetType: inline
         script: |
-          $launchRequestDirectory =
-            Join-Path "$(testPayloadDirInner)" 'Test\.winui-switcher'
-          if (Test-Path -LiteralPath $launchRequestDirectory) {
-            Remove-Item -LiteralPath $launchRequestDirectory -Recurse -Force
-          }
+          & "$(Build.SourcesDirectory)\build\PipelineScripts\Remove-SwitcherLaunchRequests.ps1" `
+            -TestDirectory "$(testPayloadDirInner)\Test"
           foreach ($temporaryFile in @(
               (Join-Path "$(switcherResultsDir)" 'args.txt'),
               (Join-Path "$(switcherResultsDir)" 'temp-runworkitem.cmd'),
@@ -334,13 +343,11 @@ stages:
         targetPath: $(ob_outputDirectory)\SwitcherBaselining
         artifact: 'switcher_x86chk'
 
-  - template: WinUI-RunSwitcherFullSuite-Job.yml
+  - template: WinUI-RunSwitcherHostPreflight-Job.yml
     parameters:
-      jobName: RunSwitcherFullSuite_UAP_x86chk
-      displayName: 'Probe full master-backed UAP suite under SwitcherMode'
+      jobName: RunSwitcherHostPreflight_UAP_x86chk
+      displayName: 'Certify native and managed UAP System composition hosts'
       hostingMode: UAP
-      logFileName: fullsuite-switcher-probe-uap.log
-      artifactName: switcher_fullsuite_uap_x86chk
       preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.External.*.dll'
       certificationMarker: 'SwitcherMode: native packaged UAP test process selected and certified System composition.'
       additionalCertificationMarker: 'SwitcherMode: managed packaged UAP test process selected and certified System composition.'
@@ -349,14 +356,29 @@ stages:
       additionalPreflightTestSelector: 'SwitcherTests*VerifyManagedPackagedHostSystemCompositionPath'
       additionalPreflightLogFileName: switcher-preflight-uap-managed.log
 
-  - template: WinUI-RunSwitcherFullSuite-Job.yml
+  - template: WinUI-RunSwitcherHostPreflight-Job.yml
     parameters:
-      jobName: RunSwitcherFullSuite_WPF_x86chk
-      displayName: 'Probe full master-backed WPF suite under SwitcherMode'
+      jobName: RunSwitcherHostPreflight_WPF_x86chk
+      displayName: 'Certify WPF System composition host'
       hostingMode: WPF
-      logFileName: fullsuite-switcher-probe-wpf.log
-      artifactName: switcher_fullsuite_wpf_x86chk
       preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.*.dll'
       certificationMarker: 'SwitcherMode: Private.Infrastructure.Hosting.WPF.HostFactory selected and certified System composition.'
       preflightTestSelector: 'WPFTests*VerifyPLMHandlerNoException'
       preflightLogFileName: switcher-preflight-wpf.log
+
+  - template: WinUI-RunSwitcherTestPassOnPipeline-Job.yml
+    parameters:
+      runTestJobName: RunSwitcherDevTests25H2
+      dependsOn:
+      - CreateSwitcherTestPayload
+      - RunSwitcherTests_x86chk
+      - RunSwitcherHostPreflight_UAP_x86chk
+      - RunSwitcherHostPreflight_WPF_x86chk
+      buildPlatform: x86
+      buildConfiguration: chk
+      testOS: Win11-25H2
+      testSuite: DevTestSuite
+      rerunPassesRequiredToAvoidFailure: 5
+      testPayloadArtifactName: SwitcherTestPayload
+      poolImage: ge_current-vhdx_enterprise
+      parallelJobs: 20

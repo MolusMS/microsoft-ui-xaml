@@ -2,6 +2,7 @@
 
 #include "App.h"
 #include "MainWindow.h"
+#include "SwitcherComposition.h"
 
 extern HINSTANCE g_hInst;
 
@@ -18,6 +19,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(lpCmdLine);
 
     g_hInst = hInstance;
+    winrt::init_apartment(winrt::apartment_type::single_threaded);
+    SwitcherComposition::ConfigureAndCertifyFromLaunchRequest();
 
 #ifdef MULTITHREADED_WINDOWS
     MainWindow::CreateNewWindow(nCmdShow);
@@ -27,8 +30,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         g_childThreads[i].join();
     }
 #else
-    winrt::init_apartment(winrt::apartment_type::single_threaded);
-
     // Start a DispatcherQueueController.  A DispatcherQueue must be running on the thread for XAML to work.
     auto dqc = winrt::Microsoft::UI::Dispatching::DispatcherQueueController::CreateOnCurrentThread();
     MainWindow::CreateNewWindow(nCmdShow, {});

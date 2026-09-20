@@ -12,6 +12,7 @@
     <ClCompile Include="App.cpp" />
     <ClCompile Include="DesktopWindow.cpp" />
     <ClCompile Include="MainWindow.cpp" />
+    <ClCompile Include="SwitcherComposition.cpp" />
     <ClCompile Include="WinMain.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -20,6 +21,7 @@
     <ClInclude Include="targetver.h" />
     <ClInclude Include="DesktopWindow.h" />
     <ClInclude Include="MainWindow.h" />
+    <ClInclude Include="SwitcherComposition.h" />
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="app.manifest" />
