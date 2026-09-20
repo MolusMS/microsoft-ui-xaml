@@ -76,15 +76,7 @@ jobs:
     env:
       SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
-  - task: NuGetAuthenticate@1
-
-  - task: NuGetCommand@2
-    displayName: 'NuGet restore Lifted XAML dependencies'
-    inputs:
-      command: 'custom'
-      arguments: 'restore packages.config -ConfigFile nuget.config -PackagesDirectory $(Build.SourcesDirectory)\packages'
-      includeNuGetOrg: false
-
+  # Host preflights consume compiled pipeline artifacts and do not need source-tree packages.
   - template: WinUI-DownloadPipelineArtifacts-Steps.yml
     parameters:
       enableUseOutputFromPreviousBuild: true
