@@ -79,8 +79,7 @@ namespace LimitedAccessFeatureResource
 
 $resourceType = 'LimitedAccessFeature'
 $resourceName = 'Identity'
-$resourceData = [Text.Encoding]::Unicode.GetBytes(
-    $PackageFamilyName + [char]0)
+$resourceData = [Text.Encoding]::Unicode.GetBytes($PackageFamilyName)
 
 if (-not $VerifyOnly) {
     $update = [LimitedAccessFeatureResource.NativeMethods]::BeginUpdateResource(
@@ -173,14 +172,26 @@ try {
         $actualData,
         0,
         $actualData.Length)
-    $actualPackageFamilyName =
-        [Text.Encoding]::Unicode.GetString($actualData).TrimEnd([char]0)
-    if ($actualPackageFamilyName -cne $PackageFamilyName) {
+    if (($resourceSize % 2) -ne 0) {
         throw (
-            "The LimitedAccessFeature identity resource contains '{0}', " +
-            "not '{1}'." -f
+            'The LimitedAccessFeature identity resource has an invalid ' +
+            "UTF-16 byte count: $resourceSize.")
+    }
+
+    $actualPackageFamilyName =
+        [Text.Encoding]::Unicode.GetString($actualData)
+    if (($actualData.Length -ne $resourceData.Length) -or
+        -not [string]::Equals(
             $actualPackageFamilyName,
-            $PackageFamilyName)
+            $PackageFamilyName,
+            [StringComparison]::Ordinal)) {
+        throw ((
+            "The LimitedAccessFeature identity resource contains '{0}' " +
+            "({1} bytes), not '{2}' ({3} bytes).") -f
+            $actualPackageFamilyName,
+            $actualData.Length,
+            $PackageFamilyName,
+            $resourceData.Length)
     }
 }
 finally {

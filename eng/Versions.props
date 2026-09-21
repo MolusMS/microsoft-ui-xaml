@@ -48,7 +48,7 @@
     <IxpTransportPackageVersion>$([System.Text.RegularExpressions.Regex]::Match($(VersionDetailsFileContents), '$(LiftedIXPTransportPackageName).*?Version="(.*?)"').Groups[1].Value)</IxpTransportPackageVersion>
     <BasePackageVersion>$([System.Text.RegularExpressions.Regex]::Match($(VersionDetailsFileContents), '$(BasePackageName)".*?Version="(.*?)"').Groups[1].Value)</BasePackageVersion>
     <WinUIDetailsNugetVersion>$([System.Text.RegularExpressions.Regex]::Match($(VersionDetailsFileContents), 'Microsoft.Internal.WinUIDetails.*?Version="(.*?)"').Groups[1].Value)</WinUIDetailsNugetVersion>
-    <!-- Package Versions for use in sample and test apps. Once Transport packages are removed revert to using old version variables -->
+    <!-- Package versions for use in sample and test apps. -->
     <FoundationPackageVersion>$([System.Text.RegularExpressions.Regex]::Match($(VersionDetailsFileContents), '$(FoundationPackageName)".*?Version="(.*?)"').Groups[1].Value)</FoundationPackageVersion>
     <IXPPackageVersion>$([System.Text.RegularExpressions.Regex]::Match($(VersionDetailsFileContents), '$(LiftedIXPPackageName)".*?Version="(.*?)"').Groups[1].Value)</IXPPackageVersion>
     <!-- ====================================================================================== -->
@@ -58,9 +58,14 @@
     <IxpTransportPackageVersion Condition="'$(IsInternalWinUIBuild)' != 'true'">2.1.4-experimental</IxpTransportPackageVersion>
     <BasePackageVersion Condition="'$(IsInternalWinUIBuild)' != 'true'">2.0.3-experimental1</BasePackageVersion>
     <WinUIDetailsNugetVersion Condition="'$(IsInternalWinUIBuild)' != 'true'">2.10.0-experimental.20260625.0</WinUIDetailsNugetVersion>
-    <!-- Package Versions for use in sample and test apps. Once Transport packages are removed revert to using old version variables -->
+    <!-- The OSS transport and app package IDs are identical, so self-contained apps must use the same IXP version as the product. -->
     <FoundationPackageVersion Condition="'$(IsInternalWinUIBuild)' != 'true'">2.0.19-experimental</FoundationPackageVersion>
-    <IXPPackageVersion Condition="'$(IsInternalWinUIBuild)' != 'true'">2.0.11-experimental</IXPPackageVersion>
+    <IXPPackageVersion Condition="'$(IsInternalWinUIBuild)' != 'true'">$(IxpTransportPackageVersion)</IXPPackageVersion>
+    <!-- Some legacy C++ projects import package props before Directory.Build.props, so this app-package path must be available with the versions. -->
+    <LiftedIXPAppPackagesDirectory Condition="'$(NugetPackageDirectory)' != ''">$(NugetPackageDirectory)</LiftedIXPAppPackagesDirectory>
+    <LiftedIXPAppPackagesDirectory Condition="'$(LiftedIXPAppPackagesDirectory)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\packages'))</LiftedIXPAppPackagesDirectory>
+    <LiftedIXPAppPackagePath>$(LiftedIXPAppPackagesDirectory)\$(LiftedIXPPackageName).$(IXPPackageVersion)</LiftedIXPAppPackagePath>
+    <LiftedIXPAppPackagePath Condition="'$(IsInternalWinUIBuild)' != 'true'">$(LiftedIXPAppPackagesDirectory)\$(LiftedIXPPackageName)\$(IXPPackageVersion)</LiftedIXPAppPackagePath>
     <!-- ====================================================================================== -->
     <!-- It is at this point that we might want our non-product code to be able to use a package version different than the primary configuration -->
     <!-- If so, this would probably be the point at which we would override the above version with what is configured for the app                 -->
@@ -126,6 +131,8 @@
     <!-- Verify that we were able to retrieve all the versions from the configuration files. -->
     <Error Condition="'$(FoundationTransportPackageVersion)' == ''" Text="Unable to determine version for package $(ProjectReunionFoundationTransportPackageName)" />
     <Error Condition="'$(IxpTransportPackageVersion)' == ''" Text="Unable to determine version for package $(LiftedIXPTransportPackageName)" />
+    <Error Condition="'$(IXPPackageVersion)' == ''" Text="Unable to determine version for package $(LiftedIXPPackageName)" />
+    <Error Condition="'$(IsInternalWinUIBuild)' != 'true' and '$(IXPPackageVersion)' != '$(IxpTransportPackageVersion)'" Text="OSS self-contained IXP version must match the product IXP transport version" />
     <Error Condition="'$(LocalizedMUIFilesPackageVersion)' == ''" Text="Unable to determine version for package Microsoft.Internal.WinUILocalizationResources" />
     <Error Condition="'$(MicrosoftWindowsSDKContractsVersion)' == ''" Text="Unable to determine version for package Microsoft.Windows.SDK.Contracts" />
     <Error Condition="'$(TaefNugetPackageVersion)' == ''" Text="Unable to determine version for package Microsoft.Taef" />

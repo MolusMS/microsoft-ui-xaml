@@ -236,6 +236,17 @@ if ($Mode -eq "DevTestSuite")
 
     if ($IncludeSwitcherIXMP)
     {
+        $muxControlsTestAppExecutable =
+            "$outpath\Test\UnpackagedApps\MUXControlsTestApp\MUXControlsTestApp.exe"
+        if (-not (Test-Path -LiteralPath $muxControlsTestAppExecutable -PathType Leaf))
+        {
+            throw "The unpackaged MUXControlsTestApp executable was not found: $muxControlsTestAppExecutable"
+        }
+        & "$repoRoot\build\PipelineScripts\Set-LimitedAccessFeatureIdentityResource.ps1" `
+            -ExecutablePath $muxControlsTestAppExecutable `
+            -PackageFamilyName "XamlTAEFTests_8wekyb3d8bbwe" `
+            -VerifyOnly
+
         $ixmpAppx = "$binpath\Test\IXMPTestApp.appx"
         $ixmpAssetDirectory = "$binpath\Switcher\IXMPTestApp"
         $ixmpManifest = Join-Path $ixmpAssetDirectory "Package.Switcher.appxmanifest"
@@ -255,6 +266,38 @@ if ($Mode -eq "DevTestSuite")
         }
         [void][Reflection.Assembly]::LoadWithPartialName("System.IO.Compression.FileSystem")
         [IO.Compression.ZipFile]::ExtractToDirectory($ixmpAppx, $ixmpLayout)
+
+        $productDcompi = Join-Path $outpath "dcompi.dll"
+        $ixmpDcompiFiles = @(
+            Get-ChildItem -LiteralPath $ixmpLayout -Filter "dcompi.dll" -Recurse -File)
+        if ($ixmpDcompiFiles.Count -ne 1)
+        {
+            throw "Switcher IXMP must contain exactly one dcompi.dll; found $($ixmpDcompiFiles.Count)."
+        }
+        $compositionHostDcompiFiles = @(
+            Join-Path $outpath "Test\UnpackagedApps\MUXControlsTestApp\dcompi.dll"
+            Join-Path $outpath "Test\UnpackagedApps\TabViewTearOutApp\dcompi.dll"
+            $ixmpDcompiFiles[0].FullName
+        )
+        foreach ($requiredFile in @($productDcompi) + $compositionHostDcompiFiles)
+        {
+            if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf))
+            {
+                throw "Switcher composition runtime was not found: $requiredFile"
+            }
+        }
+        $productDcompiHash = (Get-FileHash -LiteralPath $productDcompi -Algorithm SHA256).Hash
+        foreach ($hostDcompi in $compositionHostDcompiFiles)
+        {
+            $hostDcompiHash = (Get-FileHash -LiteralPath $hostDcompi -Algorithm SHA256).Hash
+            if (-not [string]::Equals(
+                    $hostDcompiHash,
+                    $productDcompiHash,
+                    [StringComparison]::OrdinalIgnoreCase))
+            {
+                throw "Switcher host dcompi.dll does not match the product runtime: $hostDcompi"
+            }
+        }
 
         foreach ($packageMetadataFile in @(
                 "[Content_Types].xml",

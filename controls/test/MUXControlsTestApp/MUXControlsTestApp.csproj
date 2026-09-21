@@ -156,6 +156,8 @@
     <PackageReference Include="Microsoft.Windows.CsWinRT" />
     <PackageReference Include="Microsoft.Taef" />
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" />
+    <!-- Keep the self-contained IXP runtime aligned with the projection used by SwitcherComposition. -->
+    <PackageReference Include="$(LiftedIXPPackageName)" />
     <PackageReference Include="DiffPlex">
       <NoWarn>
         NU1701; <!-- Package 'x' was restored using 'y' instead of the project target framework 'z'. This package may not be fully compatible with your project. -->
@@ -427,7 +429,7 @@
     <Copy SourceFiles="@(Content)" DestinationFiles="@(Content->'$(OutDir)%(Filename)%(Extension)')" Condition="'%(Content.Link)' == '' and $([System.IO.Path]::IsPathRooted('%(Identity)'))" />
   </Target>
 
-  <Target Name="BinplaceOutDir" BeforeTargets="Binplace" DependsOnTargets="CopyVCLibs;CopyDotNet;ApplyManifestToTeProcessHostExe;CopyPayloadFiles">
+  <Target Name="BinplaceOutDir" BeforeTargets="Binplace" DependsOnTargets="CopyVCLibs;CopyDotNet;ApplyManifestToTeProcessHostExe;CopyPayloadFiles;ApplySwitcherLafIdentityResource">
     <PropertyGroup>
       <UnpackagedAppsDirectory>$(ArtifactsObjDir)controls\test\MUXControls.Test\UnpackagedApps\$(MSBuildProjectName)\</UnpackagedAppsDirectory>
     </PropertyGroup>

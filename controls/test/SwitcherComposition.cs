@@ -240,10 +240,25 @@ namespace Microsoft.UI.Xaml.Tests.Common
                         "Composition switcher tests require a non-empty LAF token.");
                 }
 
-                var unlockResult = LimitedAccessFeatures.TryUnlockFeature(
-                    FeatureId,
-                    lafToken,
-                    Attestation);
+                LimitedAccessFeatureRequestResult unlockResult;
+                try
+                {
+                    unlockResult = LimitedAccessFeatures.TryUnlockFeature(
+                        FeatureId,
+                        lafToken,
+                        Attestation);
+                }
+                catch (Exception exception)
+                {
+                    throw new InvalidOperationException(
+                        "Composition switcher LAF authorization API failed " +
+                        "(HRESULT=0x" +
+                        exception.HResult.ToString(
+                            "X8",
+                            CultureInfo.InvariantCulture) +
+                        ").",
+                        exception);
+                }
                 if (unlockResult.Status != LimitedAccessFeatureStatus.Available)
                 {
                     throw new InvalidOperationException(
@@ -251,8 +266,25 @@ namespace Microsoft.UI.Xaml.Tests.Common
                         "(status=" + unlockResult.Status + ").");
                 }
 
-                if (!Microsoft.UI.Composition.CompositionEngine.TrySetProcessEngine(
-                        Microsoft.UI.Composition.CompositionEngineType.System))
+                bool systemEngineSelected;
+                try
+                {
+                    systemEngineSelected =
+                        Microsoft.UI.Composition.CompositionEngine.TrySetProcessEngine(
+                            Microsoft.UI.Composition.CompositionEngineType.System);
+                }
+                catch (Exception exception)
+                {
+                    throw new InvalidOperationException(
+                        "Composition switcher System engine selection API failed " +
+                        "(HRESULT=0x" +
+                        exception.HResult.ToString(
+                            "X8",
+                            CultureInfo.InvariantCulture) +
+                        ").",
+                        exception);
+                }
+                if (!systemEngineSelected)
                 {
                     throw new InvalidOperationException(
                         "TrySetProcessEngine(System) did not engage in the test application process.");

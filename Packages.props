@@ -22,6 +22,7 @@
     <PackageReference Update="Microsoft.Windows.SDK.BuildTools.MSIX" Version="$(WindowSdkMSIXVersion)" />
     <PackageReference Update="Microsoft.Internal.WinUIDetails" Version="$(WinUIDetailsNugetVersion)" GeneratePathProperty="true"/>
     <PackageReference Update="$(LiftedIXPTransportPackageName)" Version="$(IxpTransportPackageVersion)"/>
+    <PackageReference Update="$(LiftedIXPPackageName)" Version="$(IXPPackageVersion)"/>
     <PackageReference Update="Microsoft.Web.WebView2" Version="$(WebView2Version)" GeneratePathProperty="true" />
     <PackageReference Update="Microsoft.SourceLink.AzureRepos.Git" Version="$(MicrosoftSourceLinkAzureReposVersion)" GeneratePathProperty="true"/>
     <PackageReference Update="MUXCustomBuildTasks" Version="$(MuxCustomBuildTasksPackageVersion)" />
