@@ -23,6 +23,9 @@ namespace MUXControlsTestApp
     {
         [AssemblyInitialize]
         [TestProperty("HelixWorkItemCreation", "CreateWorkItemPerTestClass")]
+        [TestProperty(
+            "UAP:AppXManifest[@SwitcherMode='true']",
+            "Package.Switcher.appxmanifest")]
         public static void AssemblyInitialize(TestContext testContext)
         {
             bool hasSwitcherMode =

@@ -119,7 +119,7 @@ jobs:
         "$(testPayloadDir)\Test\UnpackagedApps\MUXControlsTestApp\.winui-switcher",
         "$(testPayloadDir)\Test\UnpackagedApps\TabViewTearOutApp\.winui-switcher"
         -PackagedLaunchRequestManifestPath
-        "$(Build.SourcesDirectory)\controls\test\IXMPTestApp\Package.appxmanifest"
+        "$(testPayloadDir)\Test\Switcher\IXMPTestApp\Package.Switcher.appxmanifest"
         -RunId "$(Build.BuildId)"
     env:
       SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)

@@ -233,6 +233,34 @@
       <Output TaskParameter="MSBuildProcessId" ItemName="MSBuildProcessIdsToKill" />
     </RunPowershellScript>
   </Target>
+  <PropertyGroup>
+    <SwitcherIXMPPackageAssetsDir>$(IntermediateOutputPath)SwitcherIXMPPackageAssets</SwitcherIXMPPackageAssetsDir>
+  </PropertyGroup>
+  <Target Name="CreateSwitcherIXMPPackageAssets"
+      AfterTargets="_GenerateAppxPackage"
+      BeforeTargets="AddSwitcherIXMPPackageAssets"
+      Condition="'$(BuildingInsideVisualStudio)' != 'true' and '$(GenerateAppxPackageOnBuild)' == 'true'">
+    <RunPowershellScript
+        Path="$(MUXProjectRoot)build\PipelineScripts\New-IXMPSwitcherPackageAssets.ps1"
+        Parameters="-AppxRecipePath &quot;$(OutDir)\$(MSBuildProjectName).build.appxrecipe&quot; -PriConfigPath &quot;$(IntermediateOutputPath)priconfig.xml&quot; -MakePriPath &quot;$(MakePriExeFullPath)&quot; -OutputDirectory &quot;$(SwitcherIXMPPackageAssetsDir)&quot;"
+        FilesWritten="$(SwitcherIXMPPackageAssetsDir)\Package.Switcher.appxmanifest;$(SwitcherIXMPPackageAssetsDir)\resources.pri">
+      <Output TaskParameter="MSBuildProcessId" ItemName="MSBuildProcessIdsToKill" />
+    </RunPowershellScript>
+  </Target>
+  <Target Name="AddSwitcherIXMPPackageAssets"
+      AfterTargets="AddBinplaceItems"
+      BeforeTargets="Binplace"
+      DependsOnTargets="CreateSwitcherIXMPPackageAssets"
+      Condition="'$(BuildingInsideVisualStudio)' != 'true' and '$(GenerateAppxPackageOnBuild)' == 'true'">
+    <ItemGroup>
+      <BinplaceItem Include="$(SwitcherIXMPPackageAssetsDir)\Package.Switcher.appxmanifest">
+        <Destination>$(BinplaceRootPath)\Switcher\IXMPTestApp</Destination>
+      </BinplaceItem>
+      <BinplaceItem Include="$(SwitcherIXMPPackageAssetsDir)\resources.pri">
+        <Destination>$(BinplaceRootPath)\Switcher\IXMPTestApp</Destination>
+      </BinplaceItem>
+    </ItemGroup>
+  </Target>
   <PropertyGroup Condition="'$(BuildingInsideVisualStudio)' != 'true'">
     <TargetDestination>$(TestBinplaceDestinationPath)</TargetDestination>
     <AppxDependencyPlatform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">$(arch)</AppxDependencyPlatform>

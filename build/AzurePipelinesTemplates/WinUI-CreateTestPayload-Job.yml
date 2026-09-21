@@ -94,6 +94,12 @@ jobs:
     - ${{ if ne(parameters.pipelineKind, 'ValidateWindowsAppSDK') }}:
       - name: isValidateWindowsAppSDKRun
         value: 0
+    - ${{ if ne(parameters.switcherMode, 0) }}:
+      - name: switcherPayloadAdditionalArguments
+        value: '-IncludeSwitcherIXMP'
+    - ${{ else }}:
+      - name: switcherPayloadAdditionalArguments
+        value: ''
     - name: ob_sdl_codeSignValidation_excludes
       value: '-|packaging\**;-|**\Test\**;-|**\Taef\**;-|**\TestDependencies\**;-|TestPayload\**;-|**\Microsoft.Internal.FrameworkUdk.dll'
 
@@ -172,7 +178,7 @@ jobs:
     inputs:
       targetType: filePath
       filePath: test\CreateTestPayload.ps1
-      arguments: -BinSourceRoot $(artifactsDir)\drop -Platform $(buildPlatform) -Configuration $(normalizedConfiguration) -Mode ${{ parameters.testSuite }} -SkipSymbols $(scenarioPayloadAdditionalArguments) $(webView2RuntimeInstallerArgument)
+      arguments: -BinSourceRoot $(artifactsDir)\drop -Platform $(buildPlatform) -Configuration $(normalizedConfiguration) -Mode ${{ parameters.testSuite }} -SkipSymbols $(scenarioPayloadAdditionalArguments) $(webView2RuntimeInstallerArgument) $(switcherPayloadAdditionalArguments)
 
   - task: CopyFiles@2
     displayName: MoveToOutputDirectory
@@ -203,16 +209,29 @@ jobs:
         targetOsVersion: $(targetOsVersion)
         taefExePath: $(taefExePath)
 
-    - template: WinUI-CreateHelixProjFile-Steps.yml
-      parameters:
-        testFilePathPattern: 'Test\IXMPTestApp.appx'
-        outputProjFileName: 'RunTestsInHelix-IXMPTests.proj'
-        testBinaryPath: $(testBinaryPath)
-        taefQuery: $(taefQuery)
-        taefExtraParameters: ${{ parameters.taefExtraParameters }}
-        switcherMode: ${{ parameters.switcherMode }}
-        targetOsVersion: $(targetOsVersion)
-        taefExePath: $(taefExePath)
+    - ${{ if eq(parameters.switcherMode, 0) }}:
+      - template: WinUI-CreateHelixProjFile-Steps.yml
+        parameters:
+          testFilePathPattern: 'Test\IXMPTestApp.appx'
+          outputProjFileName: 'RunTestsInHelix-IXMPTests.proj'
+          testBinaryPath: $(testBinaryPath)
+          taefQuery: $(taefQuery)
+          taefExtraParameters: ${{ parameters.taefExtraParameters }}
+          switcherMode: ${{ parameters.switcherMode }}
+          targetOsVersion: $(targetOsVersion)
+          taefExePath: $(taefExePath)
+
+    - ${{ if ne(parameters.switcherMode, 0) }}:
+      - template: WinUI-CreateHelixProjFile-Steps.yml
+        parameters:
+          testFilePathPattern: 'Test\Switcher\IXMPTestApp\IXMPTestApp.Tests.exe'
+          outputProjFileName: 'RunTestsInHelix-IXMPTests.proj'
+          testBinaryPath: $(testBinaryPath)
+          taefQuery: $(taefQuery)
+          taefExtraParameters: ${{ parameters.taefExtraParameters }}
+          switcherMode: ${{ parameters.switcherMode }}
+          targetOsVersion: $(targetOsVersion)
+          taefExePath: $(taefExePath)
 
     - template: WinUI-CreateHelixProjFile-Steps.yml
       parameters:
@@ -350,6 +369,12 @@ jobs:
                     if (-not $commandText.Contains($requiredQuery)) {
                       throw "Switcher DevTestSuite project $projectName is missing normal Win11-25H2 query '$requiredQuery'."
                     }
+                  }
+                  if ($projectName -eq 'RunTestsInHelix-IXMPTests.proj' -and
+                      -not $commandText.Contains(
+                        'Test\Switcher\IXMPTestApp\IXMPTestApp.Tests.exe')) {
+                    throw (
+                      'Switcher IXMP work items must use the authorized loose package layout.')
                   }
                 }
               }
