@@ -140,32 +140,74 @@ void SwitcherTestProcess::CertifySystemCompositionIfRequested()
         return;
     }
 
+    HRESULT certificationResult = E_FAIL;
     try
     {
         WEX::Logging::Log::Comment(
             L"SwitcherMode: Win32Explicit test process is certifying System composition on its initialized XAML thread.");
-        auto compositor = ref new Microsoft::UI::Composition::Compositor();
-        Platform::Object^ systemCompositor =
-            Microsoft::UI::Composition::CompositionEngine::GetForSystemEngine(
-                compositor);
-        if (dynamic_cast<::Windows::UI::Composition::Compositor^>(
-                systemCompositor) == nullptr)
+        auto probeElement =
+            ref new Microsoft::UI::Xaml::Controls::Grid();
+        auto visual =
+            Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::
+                GetElementVisual(probeElement);
+        if (visual == nullptr)
         {
-            Fail(
-                E_FAIL,
-                L"Win32Explicit System composition certification failed.");
+            certificationResult = E_NOINTERFACE;
+        }
+        else
+        {
+            auto compositor = visual->Compositor;
+            Platform::Object^ systemCompositor =
+                Microsoft::UI::Composition::CompositionEngine::
+                    GetForSystemEngine(compositor);
+            if (systemCompositor == nullptr)
+            {
+                certificationResult = E_NOINTERFACE;
+            }
+            else
+            {
+                auto systemInspectable =
+                    reinterpret_cast<IInspectable*>(systemCompositor);
+                wil::unique_hstring runtimeClassName;
+                certificationResult =
+                    systemInspectable->GetRuntimeClassName(
+                        runtimeClassName.put());
+                if (SUCCEEDED(certificationResult))
+                {
+                    UINT32 length = 0;
+                    PCWSTR runtimeClassNameRaw =
+                        WindowsGetStringRawBuffer(
+                            runtimeClassName.get(),
+                            &length);
+                    const std::wstring actualRuntimeClassName(
+                        runtimeClassNameRaw,
+                        length);
+                    WEX::Logging::Log::Comment(
+                        WEX::Common::String().Format(
+                            L"SwitcherMode: Win32Explicit system-engine object class name: '%s'.",
+                            actualRuntimeClassName.c_str()));
+                    certificationResult =
+                        actualRuntimeClassName ==
+                            L"Windows.UI.Composition.Compositor"
+                        ? S_OK
+                        : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                }
+            }
         }
     }
     catch (Platform::Exception^ exception)
     {
-        Fail(
-            exception->HResult,
-            L"Win32Explicit System composition certification failed.");
+        certificationResult = exception->HResult;
     }
     catch (...)
     {
+        certificationResult = E_FAIL;
+    }
+
+    if (FAILED(certificationResult))
+    {
         Fail(
-            E_FAIL,
+            certificationResult,
             L"Win32Explicit System composition certification failed.");
     }
 

@@ -1,0 +1,6 @@
+#include <windows.h>
+
+Identity LimitedAccessFeature
+{
+    L"XamlTAEFTests_8wekyb3d8bbwe"
+}

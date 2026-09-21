@@ -170,6 +170,7 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="TabViewTearOutApp.rc" />
+    <ResourceCompile Include="SwitcherLafIdentity.rc" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="small.ico" />

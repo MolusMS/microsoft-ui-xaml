@@ -400,6 +400,27 @@
       <FileWrites Include="$(TeProcessHostManifestPath);$(TeProcessHostMergedManifestPath)" />
     </ItemGroup>
   </Target>
+  <PropertyGroup>
+    <SwitcherLafExecutablePath>$(OutDir)$(AssemblyName).exe</SwitcherLafExecutablePath>
+    <SwitcherLafResourceScript>$(MUXProjectRoot)build\PipelineScripts\Set-LimitedAccessFeatureIdentityResource.ps1</SwitcherLafResourceScript>
+    <SwitcherLafResourceStamp>$(IntermediateOutputPath)$(AssemblyName).switcher-laf-resource.stamp</SwitcherLafResourceStamp>
+  </PropertyGroup>
+  <Target Name="ApplySwitcherLafIdentityResource"
+      AfterTargets="Build"
+      Inputs="$(SwitcherLafExecutablePath);$(SwitcherLafResourceScript)"
+      Outputs="$(SwitcherLafResourceStamp)">
+    <Error
+        Condition="!Exists('$(SwitcherLafExecutablePath)')"
+        Text="The unpackaged MUXControlsTestApp executable was not found: $(SwitcherLafExecutablePath)" />
+    <RunPowershellScript
+        Path="$(SwitcherLafResourceScript)"
+        Parameters="-ExecutablePath &quot;$(SwitcherLafExecutablePath)&quot; -PackageFamilyName &quot;XamlTAEFTests_8wekyb3d8bbwe&quot;"
+        FilesWritten="$(SwitcherLafResourceStamp)" />
+    <Touch Files="$(SwitcherLafResourceStamp)" AlwaysCreate="true" />
+    <ItemGroup>
+      <FileWrites Include="$(SwitcherLafResourceStamp)" />
+    </ItemGroup>
+  </Target>
   <Target Name="CopyPayloadFiles">
     <Copy SourceFiles="@(Content)" DestinationFiles="@(Content->'$(OutDir)%(Link)')" Condition="'%(Content.Link)' != ''" />
     <Copy SourceFiles="@(Content)" DestinationFiles="@(Content->'$(OutDir)%(Identity)')" Condition="'%(Content.Link)' == '' and !$([System.IO.Path]::IsPathRooted('%(Identity)'))" />

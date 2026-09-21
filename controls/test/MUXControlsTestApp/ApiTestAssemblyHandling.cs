@@ -29,6 +29,7 @@ namespace MUXControlsTestApp
         [TestProperty("IsolationLevel", "Class")]
         [TestProperty("RunAs", "UAP")]
         [TestProperty("UAP:Host", "PackagedCWA")]
+        [TestProperty("UAP:AppXManifest", "AppXManifest.Centennial.xml")]
         public static void AssemblyInitialize(TestContext testContext)
         {
             bool switcherRequested =

@@ -331,17 +331,32 @@ void SwitcherComposition::Certify()
                 RuntimeClass_Microsoft_UI_Composition_CompositionEngine).Get(),
             IID_PPV_ARGS(compositionEngineStatics.ReleaseAndGetAddressOf())));
 
-        auto compositor = winrt::Microsoft::UI::Composition::Compositor();
+        auto probeElement =
+            winrt::Microsoft::UI::Xaml::Controls::Grid();
+        auto visual =
+            winrt::Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::
+                GetElementVisual(probeElement);
+        THROW_HR_IF(E_NOINTERFACE, !visual);
+        auto compositor = visual.Compositor();
         Microsoft::WRL::ComPtr<::IInspectable> systemCompositorAbi;
         THROW_IF_FAILED(compositionEngineStatics->GetForSystemEngine(
             reinterpret_cast<::IInspectable*>(winrt::get_abi(compositor)),
             systemCompositorAbi.ReleaseAndGetAddressOf()));
-        winrt::Windows::Foundation::IInspectable systemCompositor{
-            systemCompositorAbi.Detach(),
-            winrt::take_ownership_from_abi };
+        THROW_HR_IF(E_NOINTERFACE, !systemCompositorAbi);
+
+        wil::unique_hstring runtimeClassName;
+        THROW_IF_FAILED(systemCompositorAbi->GetRuntimeClassName(
+            runtimeClassName.put()));
+        UINT32 runtimeClassNameLength = 0;
+        PCWSTR runtimeClassNameRaw = WindowsGetStringRawBuffer(
+            runtimeClassName.get(),
+            &runtimeClassNameLength);
         THROW_HR_IF(
             E_FAIL,
-            !systemCompositor.try_as<winrt::Windows::UI::Composition::Compositor>());
+            std::wstring(
+                runtimeClassNameRaw,
+                runtimeClassNameLength) !=
+                L"Windows.UI.Composition.Compositor");
 
         WriteCertification(
             certificationPath,

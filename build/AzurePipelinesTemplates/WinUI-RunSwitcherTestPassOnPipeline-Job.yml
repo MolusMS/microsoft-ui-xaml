@@ -12,6 +12,8 @@ parameters:
   testPayloadArtifactName: SwitcherTestPayload
   poolImage: ge_current-vhdx_enterprise
   parallelJobs: 20
+  jobTimeoutInMinutes: 210
+  testTimeoutInMinutes: 180
 
 jobs:
 - job: ${{ parameters.runTestJobName }}
@@ -23,7 +25,7 @@ jobs:
     isCustom: true
     name: WinDevPool-Test
     demands: ImageOverride -equals ${{ parameters.poolImage }}
-  timeoutInMinutes: 120
+  timeoutInMinutes: ${{ parameters.jobTimeoutInMinutes }}
   strategy:
     parallel: ${{ parameters.parallelJobs }}
 
@@ -124,7 +126,7 @@ jobs:
 
   - task: PowerShell@2
     displayName: Run normal per-OS test slice with System composition
-    timeoutInMinutes: 105
+    timeoutInMinutes: ${{ parameters.testTimeoutInMinutes }}
     inputs:
       targetType: filePath
       filePath: Helix\common\pipeline\RunTestPassSliceOnBuildAgent.ps1
