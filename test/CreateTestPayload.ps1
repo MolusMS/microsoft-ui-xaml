@@ -207,6 +207,14 @@ if ($Mode -eq "DevTestSuite")
     Publish-Item "$binpath\Product\en-US\*.dll.mui" "$outpath\Test\en-US"
     Publish-Item "$binpath\Product\Microsoft.Ui.Xaml\*" "$outpath\Test\Microsoft.UI.Xaml"
     Publish-Item "$binpath\Test\" "$outpath\Test"
+    $muxControlsApiManifest = "$binpath\Test\AppxManifest.Centennial.xml"
+    if (-not (Test-Path -LiteralPath $muxControlsApiManifest -PathType Leaf))
+    {
+        throw "The MUXControls API test manifest was not found: $muxControlsApiManifest"
+    }
+    Publish-Item `
+        $muxControlsApiManifest `
+        "$outpath\Test\UnpackagedApps\MUXControlsTestApp"
     Publish-Item "$binpath\TAEF\EtwProcessor.dll" "$outpath\Test"
     Publish-Item "$binpath\TAEF\TE.AppxUnitTestClient.dll" "$outpath\Test"
     Publish-Item "$binpath\TAEF\Microsoft.VisualStudio.TestPlatform.TestExecutor.WinRTCore.winmd" "$outpath\Test"

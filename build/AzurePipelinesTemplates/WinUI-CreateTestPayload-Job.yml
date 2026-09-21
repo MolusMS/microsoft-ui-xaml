@@ -315,6 +315,19 @@ jobs:
         inputs:
           targetType: inline
           script: |
+            $muxControlsApiManifest = Join-Path `
+              "$(testBinaryPath)" `
+              'Test\UnpackagedApps\MUXControlsTestApp\AppxManifest.Centennial.xml'
+            if (-not (Test-Path -LiteralPath $muxControlsApiManifest -PathType Leaf)) {
+              throw "MUXControls API test manifest is missing from the payload: $muxControlsApiManifest"
+            }
+            $muxControlsApiManifestText =
+              Get-Content -LiteralPath $muxControlsApiManifest -Raw
+            if ($muxControlsApiManifestText.Contains('__ARCH__') -or
+                $muxControlsApiManifestText.Contains('__EXTS__')) {
+              throw "MUXControls API test manifest was not generated: $muxControlsApiManifest"
+            }
+
             $workItemDirectory =
               "$(ob_outputDirectory)\helixworkitems\${{ parameters.testSuite }}\$(buildPlatform)$(normalizedConfiguration)\$(testOS)"
             $expectedProjects = @(
