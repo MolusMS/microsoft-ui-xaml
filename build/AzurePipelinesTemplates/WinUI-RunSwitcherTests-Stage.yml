@@ -55,6 +55,10 @@ stages:
         value: testResults-Foundation-Graphics-SwitcherTests.xml
       - name: isValidateWindowsAppSDKRun
         value: 0
+      # SwitcherTests is ignored in generic DevTestSuite runs because it requires this
+      # secret-backed packaged launch path. The name-filtered work item opts it back in.
+      - name: _runIgnoredTests
+        value: 1
       - name: ob_outputDirectory
         value: c:\uploadroot
       - name: ob_artifactBaseName

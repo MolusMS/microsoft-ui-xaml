@@ -18,6 +18,8 @@ public:
         TEST_CLASS_PROPERTY(L"Classification", L"Integration")
         TEST_CLASS_PROPERTY(L"VelocityTestPass:OneCoreStrict", L"Desktop")
         TEST_CLASS_PROPERTY(L"HelixWorkItemCreation", L"CreateWorkItemPerTestClass")
+        // Requires the dedicated secret-backed packaged launch path.
+        TEST_CLASS_PROPERTY(L"Ignore", L"TRUE")
     END_TEST_CLASS()
 
     TEST_CLASS_SETUP(ClassSetup)
