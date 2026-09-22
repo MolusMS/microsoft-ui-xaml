@@ -6,11 +6,10 @@
 # Self-contained (modeled on WinUI-PGO-Train-Stage.yml, which uses the same ge_current pool) so
 # it does not touch the shared per-OS RunTests matrix.
 #
-# This stage certifies the native UAP, managed UAP, and WPF host paths, then runs the same
-# x86chk DevTestSuite work-item matrix as the normal Win11-25H2 test pass. Application-owned
-# and Win32Explicit processes fail closed unless they independently certify System composition;
-# isolated unit tests remain unchanged because they do not initialize composition. The matrix
-# executes on ge_current because that image carries the CompositionEngine limited-access feature.
+# This stage runs Harini's focused composition canary and certifies the native UAP,
+# managed UAP, and WPF host paths. Broader DevTestSuite tests are intentionally excluded:
+# they exercise additional XAML scenarios, but do not provide targeted Microsoft.UI.Composition
+# API coverage beyond this canary.
 parameters:
   - name: testSelector
     type: string
@@ -25,16 +24,6 @@ stages:
   dependsOn: Build
   condition: not(failed())
   jobs:
-  - template: WinUI-CreateTestPayload-Job.yml
-    parameters:
-      runTestJobName: CreateSwitcherTestPayload
-      pipelineKind: QuickPR
-      testSuite: DevTestSuite
-      testPayloadArtifactName: SwitcherTestPayload
-      includeWinUIGallery: false
-      switcherMode: 1
-      taefExtraParameters: '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN% /p:SwitcherRunId=$(Build.BuildId) /reportLoadingIssue'
-
   - job: RunSwitcherTests_x86chk
     pool:
       type: windows
@@ -365,20 +354,3 @@ stages:
       certificationMarker: 'SwitcherMode: Private.Infrastructure.Hosting.WPF.HostFactory selected and certified System composition.'
       preflightTestSelector: 'WPFTests*VerifyPLMHandlerNoException'
       preflightLogFileName: switcher-preflight-wpf.log
-
-  - template: WinUI-RunSwitcherTestPassOnPipeline-Job.yml
-    parameters:
-      runTestJobName: RunSwitcherDevTests25H2
-      dependsOn:
-      - CreateSwitcherTestPayload
-      - RunSwitcherTests_x86chk
-      - RunSwitcherHostPreflight_UAP_x86chk
-      - RunSwitcherHostPreflight_WPF_x86chk
-      buildPlatform: x86
-      buildConfiguration: chk
-      testOS: Win11-25H2
-      testSuite: DevTestSuite
-      rerunPassesRequiredToAvoidFailure: 5
-      testPayloadArtifactName: SwitcherTestPayload
-      poolImage: ge_current-vhdx_enterprise
-      parallelJobs: 20

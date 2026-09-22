@@ -106,7 +106,9 @@ public:
 private:
     // Switcher + MockDComp variant: loads markup, runs render walk under switcher with
     // MockDComp interposed, dumps tree XML and compares to master.
-    void LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupFile);
+    void LoadAndVerifySwitcherWithMockDComp(
+        Platform::String^ markupFile,
+        bool waitForIdle = true);
     void VerifyLiftedSystemCompositionPathImpl();
 
     inline Platform::String^ GetResourcesPath() const;

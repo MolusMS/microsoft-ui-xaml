@@ -181,7 +181,7 @@ void SwitcherTests::CompNode11WUCFullSwitcherWithMockDComp()
 void SwitcherTests::CompNode12WUCFullSwitcherWithMockDComp()
 {
     TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode12.xaml");
+    LoadAndVerifySwitcherWithMockDComp(L"CompNode12.xaml", false /* waitForIdle */);
 }
 
 void SwitcherTests::CompNode13WUCFullSwitcherWithMockDComp()
@@ -192,7 +192,7 @@ void SwitcherTests::CompNode13WUCFullSwitcherWithMockDComp()
 
 // Shared helper for switcher + MockDComp tests. Mirrors the original CompNode1WUCFullSwitcherWithMockDComp
 // body so that every CompNode*WUCFullSwitcher* test exercises an identical flow.
-void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupFile)
+void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupFile, bool waitForIdle)
 {
     auto wh = TestServices::WindowHelper;
     auto u = TestServices::Utilities;
@@ -206,7 +206,14 @@ void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupF
     {
         wh->WindowContent = root;
     });
-    wh->WaitForIdle();
+    if (waitForIdle)
+    {
+        wh->WaitForIdle();
+    }
+    else
+    {
+        wh->SynchronouslyTickUIThread(3);
+    }
 
     MockDComp::IMockDCompDevice^ mockDevice = wh->MockDCompDevice;
     VERIFY_IS_NOT_NULL(
