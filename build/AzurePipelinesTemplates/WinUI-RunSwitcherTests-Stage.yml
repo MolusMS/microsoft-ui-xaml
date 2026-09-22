@@ -6,10 +6,9 @@
 # Self-contained (modeled on WinUI-PGO-Train-Stage.yml, which uses the same ge_current pool) so
 # it does not touch the shared per-OS RunTests matrix.
 #
-# This stage runs Harini's focused composition canary and certifies the native UAP,
-# managed UAP, and WPF host paths. Broader DevTestSuite tests are intentionally excluded:
-# they exercise additional XAML scenarios, but do not provide targeted Microsoft.UI.Composition
-# API coverage beyond this canary.
+# This stage runs Harini's focused composition canary, certifies the native UAP,
+# managed UAP, and WPF host paths, and then runs Harini's original master-backed
+# UAP/WPF probes. The later 20-slice DevTestSuite expansion remains excluded.
 parameters:
   - name: testSelector
     type: string
@@ -338,7 +337,9 @@ stages:
   - template: WinUI-RunSwitcherHostPreflight-Job.yml
     parameters:
       jobName: RunSwitcherHostPreflight_UAP_x86chk
-      displayName: 'Certify native and managed UAP System composition hosts'
+      displayName: 'Certify and probe full master-backed UAP suite under System composition'
+      logFileName: fullsuite-switcher-probe-uap.log
+      artifactName: switcher_fullsuite_uap_x86chk
       hostingMode: UAP
       preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.External.*.dll'
       certificationMarker: 'SwitcherMode: native packaged UAP test process selected and certified System composition.'
@@ -352,7 +353,9 @@ stages:
   - template: WinUI-RunSwitcherHostPreflight-Job.yml
     parameters:
       jobName: RunSwitcherHostPreflight_WPF_x86chk
-      displayName: 'Certify WPF System composition host'
+      displayName: 'Certify and probe full master-backed WPF suite under System composition'
+      logFileName: fullsuite-switcher-probe-wpf.log
+      artifactName: switcher_fullsuite_wpf_x86chk
       hostingMode: WPF
       preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.*.dll'
       certificationMarker: 'SwitcherMode: Private.Infrastructure.Hosting.WPF.HostFactory selected and certified System composition.'
