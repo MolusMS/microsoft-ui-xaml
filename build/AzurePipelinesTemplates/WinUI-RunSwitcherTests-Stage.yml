@@ -55,10 +55,6 @@ stages:
         value: testResults-Foundation-Graphics-SwitcherTests.xml
       - name: isValidateWindowsAppSDKRun
         value: 0
-      # SwitcherTests is ignored in generic DevTestSuite runs because it requires this
-      # secret-backed packaged launch path. The name-filtered work item opts it back in.
-      - name: _runIgnoredTests
-        value: 1
       - name: ob_outputDirectory
         value: c:\uploadroot
       - name: ob_artifactBaseName
@@ -143,6 +139,9 @@ stages:
         testSuite: DevTestSuite
         taefQuery: "(@Name='${{ parameters.testSelector }}')"
         taefExtraParameters: '/p:HostingMode=UAP /p:SwitcherLafToken=%SWITCHER_LAF_TOKEN% /reportLoadingIssue'
+        # SwitcherTests is ignored in generic DevTestSuite runs because it requires this
+        # secret-backed packaged launch path. This name-filtered work item opts it back in.
+        runIgnoredTests: 1
         # The packaged entry point engages the switcher before ClassSetup. Do not also
         # pass SwitcherMode=true: ModuleSetup runs in an elevated unpackaged fixture process where
         # the AppX CompositionEngine registration is intentionally unavailable.
@@ -344,6 +343,7 @@ stages:
       preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.External.*.dll'
       certificationMarker: 'SwitcherMode: native packaged UAP test process selected and certified System composition.'
       additionalCertificationMarker: 'SwitcherMode: managed packaged UAP test process selected and certified System composition.'
+      runIgnoredTests: true
       preflightTestSelector: 'SwitcherTests*VerifyLiftedSystemCompositionPath'
       preflightLogFileName: switcher-preflight-uap-native.log
       additionalPreflightTestSelector: 'SwitcherTests*VerifyManagedPackagedHostSystemCompositionPath'

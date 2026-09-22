@@ -25,6 +25,9 @@ parameters:
   - name: additionalPreflightLogFileName
     type: string
     default: ''
+  - name: runIgnoredTests
+    type: boolean
+    default: false
 
 jobs:
 - job: ${{ parameters.jobName }}
@@ -155,6 +158,9 @@ jobs:
             '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN%'
             '/reportLoadingIssue'
           )
+          if ('${{ parameters.runIgnoredTests }}' -eq 'true') {
+            $testArguments += '-RunIgnoredTests'
+          }
           & .\runtests.cmd @testArguments 2>&1 |
               Tee-Object -FilePath $log
           $probeExitCode = $LASTEXITCODE
