@@ -61,12 +61,12 @@ namespace StringHelpers
     }
 }
 
-// In debug builds, suppress CRT dialog boxes that hang automated test
+// In checked/debug builds, suppress CRT dialog boxes that hang automated test
 // runs, and crash immediately on CRT asserts/errors.  TAEF spawns
 // multiple Te.ProcessHost.exe processes; ModuleSetup only runs in one
 // of them.  A static constructor runs in ALL processes that load this
 // DLL, so the suppression is always active.
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(DBG)
 namespace {
     int __cdecl CrashOnCrtFailure(int reportType, wchar_t* filename, int linenumber, wchar_t*, wchar_t* message)
     {
@@ -107,7 +107,7 @@ namespace {
 
 bool ModuleSetup()
 {
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(DBG)
     // Re-apply: other DLLs loaded since the static constructor may
     // have overridden our CRT report settings.
     ApplyCrtSuppression();
