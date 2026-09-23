@@ -142,6 +142,7 @@
     <ClInclude Include="graphics\SwapChain\SCPTestHelper.h" />
     <ClInclude Include="graphics\SwapChain\SwapChainPanelTests.h" />
     <ClInclude Include="hosting\XamlIslandTests.h" />
+    <ClInclude Include="hosting\SwitcherTestProcess.h" />
     <ClInclude Include="input\AccessKeys\AccessKeyIntegrationTests.h" />
     <ClInclude Include="input\AccessKeys\AccessKeyTestHelper.h" />
     <ClInclude Include="input\AccessKeys\BasicAccessKeysTests.h" />
@@ -285,6 +286,7 @@
     <ClCompile Include="graphics\SwapChain\SwapChainPanelTests.cpp" />
     <ClCompile Include="graphics\SwapChain\SCPTestHelper.cpp" />
     <ClCompile Include="hosting\XamlIslandTests.cpp" />
+    <ClCompile Include="hosting\SwitcherTestProcess.cpp" />
     <ClCompile Include="hosting\WindowlessXamlIslandTests.cpp" />
     <ClCompile Include="input\AccessKeys\BasicAccessKeysTests.cpp" />
     <ClCompile Include="input\AccessKeys\ButtonAccessKeyIntegrationTests.cpp" />

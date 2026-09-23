@@ -1,0 +1,481 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+parameters:
+  - name: jobName
+    type: string
+  - name: displayName
+    type: string
+  - name: logFileName
+    type: string
+  - name: artifactName
+    type: string
+  - name: hostingMode
+    type: string
+  - name: preflightTestBinaryPattern
+    type: string
+  - name: certificationMarker
+    type: string
+  - name: additionalCertificationMarker
+    type: string
+    default: ''
+  - name: preflightTestSelector
+    type: string
+  - name: preflightLogFileName
+    type: string
+  - name: additionalPreflightTestSelector
+    type: string
+    default: ''
+  - name: additionalPreflightLogFileName
+    type: string
+    default: ''
+  - name: runIgnoredTests
+    type: boolean
+    default: false
+
+jobs:
+- job: ${{ parameters.jobName }}
+  displayName: ${{ parameters.displayName }}
+  dependsOn: RunSwitcherTests_x86chk
+  condition: succeededOrFailed()
+  pool:
+    type: windows
+    isCustom: true
+    name: WinDevPool-Test
+    demands: ImageOverride -equals ge_current-vhdx_enterprise
+  timeoutInMinutes: 300
+  variables:
+    # Each generated job needs its own binding to the authorized token variable group.
+    - group: WinUI-InternalFeed
+    - name: buildPlatform
+      value: 'x86'
+    - name: normalizedConfiguration
+      value: 'chk'
+    - name: buildFolderName
+      value: x86chk
+    - name: incomingArtifactsPath
+      value: $(Build.ArtifactStagingDirectory)\incoming
+    - name: testPayloadDir
+      value: $(Build.SourcesDirectory)\TestPayload
+    - name: testPayloadDirInner
+      value: $(testPayloadDir)\x86chk
+    - name: ob_outputDirectory
+      value: c:\uploadroot
+    - name: switcherPublishDirectory
+      value: $(ob_outputDirectory)\SwitcherProbe
+    - name: switcherPreflightPublishDirectory
+      value: $(ob_outputDirectory)\SwitcherPreflight
+    - name: ob_artifactBaseName
+      value: '${{ parameters.artifactName }}'
+    - name: ob_sdl_binskim_enabled
+      value: false
+
+  steps:
+  - script: |
+      reg query "HKLM\Software\Microsoft\Windows NT\CurrentVersion"
+    displayName: Display OS version info
+
+  - task: PowerShell@2
+    displayName: Register switcher LAF token as secret
+    inputs:
+      targetType: inline
+      script: |
+        if ([string]::IsNullOrEmpty($env:SWITCHER_LAF_TOKEN)) {
+          throw 'The composition switcher LAF token is unavailable.'
+        }
+        Write-Host "##vso[task.setsecret]$env:SWITCHER_LAF_TOKEN"
+    env:
+      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+  # Host preflights consume compiled pipeline artifacts and do not need source-tree packages.
+  - template: WinUI-DownloadPipelineArtifacts-Steps.yml
+    parameters:
+      enableUseOutputFromPreviousBuild: true
+      itemPattern: '**/?(x86chk|GenXBF|Taef)/**'
+      targetPath: $(incomingArtifactsPath)
+
+  - task: PowerShell@2
+    displayName: Merge downloaded drops to parent
+    inputs:
+      targetType: 'inline'
+      script: |
+        Copy-Item -Path "$(incomingArtifactsPath)\drop_*\*" -Destination "$(incomingArtifactsPath)" -Recurse -Force
+
+  - task: powershell@2
+    displayName: Prepare test payload
+    inputs:
+      targetType: filePath
+      filePath: test\CreateTestPayload.ps1
+      arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols
+
+  - task: powershell@2
+    displayName: Prepare machine for host certification
+    inputs:
+      targetType: filePath
+      filePath: $(testPayloadDirInner)\RunSetupIfNeeded.ps1
+      workingDirectory: $(testPayloadDirInner)
+      errorActionPreference: continue
+      ignoreLASTEXITCODE: true
+    env:
+      HELIX_CORRELATION_PAYLOAD: $(testPayloadDirInner)
+
+  - ${{ if eq(parameters.hostingMode, 'UAP') }}:
+    - task: powershell@2
+      displayName: Create packaged switcher launch request
+      inputs:
+        targetType: filePath
+        filePath: build\PipelineScripts\Set-SwitcherLaunchRequest.ps1
+        arguments: >-
+          -LaunchRequestDirectory "$(testPayloadDirInner)\Test\.winui-switcher"
+          -NativeManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.native.current.xml"
+          -ManagedManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.managed.current.xml"
+      env:
+        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+  - task: powershell@2
+    timeoutInMinutes: 10
+    displayName: 'Run ${{ parameters.hostingMode }} System composition preflight'
+    inputs:
+      targetType: inline
+      workingDirectory: $(testPayloadDirInner)
+      ignoreLASTEXITCODE: true
+      script: |
+        New-Item -ItemType Directory -Path "$(switcherPreflightPublishDirectory)" -Force | Out-Null
+        $probes = @(
+          [pscustomobject]@{
+            Selector = '${{ parameters.preflightTestSelector }}'
+            LogFileName = '${{ parameters.preflightLogFileName }}'
+          }
+          [pscustomobject]@{
+            Selector = '${{ parameters.additionalPreflightTestSelector }}'
+            LogFileName = '${{ parameters.additionalPreflightLogFileName }}'
+          }
+        ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Selector) }
+
+        foreach ($probe in $probes) {
+          $log = Join-Path "$(switcherPreflightPublishDirectory)" $probe.LogFileName
+          Write-Host "##[section]Running ${{ parameters.hostingMode }} preflight selector '$($probe.Selector)'"
+          $testArguments = @(
+            $probe.Selector
+            '-HostingMode:${{ parameters.hostingMode }}'
+            '-forceHostingMode'
+            '-TerminateOnFirstFailure'
+            '-SkipPackageUninstall'
+            '-TestBinaryPattern:${{ parameters.preflightTestBinaryPattern }}'
+            '/p:SwitcherMode=true'
+            '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN%'
+            '/reportLoadingIssue'
+          )
+          if ('${{ parameters.runIgnoredTests }}' -eq 'true') {
+            $testArguments += '-RunIgnoredTests'
+          }
+          & .\runtests.cmd @testArguments 2>&1 |
+              Tee-Object -FilePath $log
+          $probeExitCode = $LASTEXITCODE
+          if ($probeExitCode -ne 0) {
+            Write-Host "##[warning]Preflight selector '$($probe.Selector)' exited with code $probeExitCode; certification marker verification will determine the result."
+          }
+        }
+    env:
+      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+  - task: PowerShell@2
+    condition: always()
+    displayName: Remove switcher launch requests
+    inputs:
+      targetType: filePath
+      filePath: build\PipelineScripts\Remove-SwitcherLaunchRequests.ps1
+      arguments: -TestDirectory "$(testPayloadDirInner)\Test"
+
+  - task: PowerShell@2
+    condition: always()
+    displayName: Sanitize switcher preflight artifacts
+    inputs:
+      targetType: filePath
+      filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
+      arguments: -ArtifactRoot "$(switcherPreflightPublishDirectory)"
+    env:
+      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+  - task: powershell@2
+    condition: and(always(), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+    displayName: 'Verify ${{ parameters.hostingMode }} System composition preflight'
+    inputs:
+      targetType: inline
+      script: |
+        $requiredCertifications = @(
+          [pscustomobject]@{
+            Selector = '${{ parameters.preflightTestSelector }}'
+            LogFileName = '${{ parameters.preflightLogFileName }}'
+            Marker = '${{ parameters.certificationMarker }}'
+          }
+          [pscustomobject]@{
+            Selector = '${{ parameters.additionalPreflightTestSelector }}'
+            LogFileName = '${{ parameters.additionalPreflightLogFileName }}'
+            Marker = '${{ parameters.additionalCertificationMarker }}'
+          }
+        ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Marker) }
+
+        $results = @($requiredCertifications | ForEach-Object {
+          $requiredCertification = $_
+          $log =
+            Join-Path "$(switcherPreflightPublishDirectory)" $requiredCertification.LogFileName
+          $messages = @()
+          if (-not (Test-Path -LiteralPath $log -PathType Leaf)) {
+            $messages +=
+              "Switcher preflight did not produce $($requiredCertification.LogFileName)."
+          }
+          else {
+            Write-Host "##vso[task.uploadfile]$log"
+            $certification =
+              Select-String -LiteralPath $log -SimpleMatch $requiredCertification.Marker |
+                Select-Object -First 1
+            if (-not $certification) {
+              $messages +=
+                "${{ parameters.hostingMode }} preflight did not produce the required System composition certification: $($requiredCertification.Marker)"
+            }
+
+            $summary =
+              Select-String -LiteralPath $log -Pattern 'Summary:\s*Total=(\d+), Passed=(\d+), Failed=(\d+), Blocked=(\d+), Not Run=(\d+), Skipped=(\d+)' |
+                Select-Object -Last 1
+            if (-not $summary) {
+              $messages +=
+                "${{ parameters.hostingMode }} preflight did not produce a TAEF result summary."
+            }
+            else {
+              $total = [int]$summary.Matches[0].Groups[1].Value
+              $passedTests = [int]$summary.Matches[0].Groups[2].Value
+              $failedTests = [int]$summary.Matches[0].Groups[3].Value
+              $blockedTests = [int]$summary.Matches[0].Groups[4].Value
+              $notRunTests = [int]$summary.Matches[0].Groups[5].Value
+              if ($total -eq 0 -or
+                  $passedTests -ne $total -or
+                  $failedTests -ne 0 -or
+                  $blockedTests -ne 0 -or
+                  $notRunTests -ne 0) {
+                $messages +=
+                  "${{ parameters.hostingMode }} preflight test did not pass: $($summary.Line.Trim())"
+              }
+            }
+          }
+
+          [pscustomobject]@{
+            Name = "${{ parameters.hostingMode }} System composition: $($requiredCertification.Selector)"
+            Passed = $messages.Count -eq 0
+            Message = $messages -join ' '
+          }
+        })
+
+        $resultsFile =
+          Join-Path "$(switcherPreflightPublishDirectory)" 'switcher-preflight-results-${{ parameters.hostingMode }}.xml'
+        $passedCount = @($results | Where-Object Passed).Count
+        $failedCount = $results.Count - $passedCount
+        $settings = [System.Xml.XmlWriterSettings]::new()
+        $settings.Indent = $true
+        $settings.Encoding = [System.Text.UTF8Encoding]::new($false)
+        $writer = [System.Xml.XmlWriter]::Create($resultsFile, $settings)
+        try {
+          $writer.WriteStartDocument()
+          $writer.WriteStartElement('assemblies')
+          $writer.WriteStartElement('assembly')
+          $writer.WriteAttributeString('name', 'Switcher ${{ parameters.hostingMode }} System composition preflight')
+          $writer.WriteAttributeString('total', $results.Count)
+          $writer.WriteAttributeString('passed', $passedCount)
+          $writer.WriteAttributeString('failed', $failedCount)
+          $writer.WriteAttributeString('skipped', '0')
+          $writer.WriteAttributeString('time', '0')
+          $writer.WriteStartElement('collection')
+          $writer.WriteAttributeString('name', 'Switcher ${{ parameters.hostingMode }} host certification')
+          $writer.WriteAttributeString('total', $results.Count)
+          $writer.WriteAttributeString('passed', $passedCount)
+          $writer.WriteAttributeString('failed', $failedCount)
+          $writer.WriteAttributeString('skipped', '0')
+          $writer.WriteAttributeString('time', '0')
+          foreach ($result in $results) {
+            $writer.WriteStartElement('test')
+            $writer.WriteAttributeString('name', $result.Name)
+            $writer.WriteAttributeString('type', 'Switcher.SystemComposition')
+            $writer.WriteAttributeString('method', $result.Name)
+            $writer.WriteAttributeString('time', '0')
+            $writer.WriteAttributeString('result', $(if ($result.Passed) { 'Pass' } else { 'Fail' }))
+            if (-not $result.Passed) {
+              $writer.WriteStartElement('failure')
+              $writer.WriteAttributeString('exception-type', 'SwitcherCertificationFailure')
+              $writer.WriteElementString('message', $result.Message)
+              $writer.WriteEndElement()
+            }
+            $writer.WriteEndElement()
+          }
+          $writer.WriteEndElement()
+          $writer.WriteEndElement()
+          $writer.WriteEndElement()
+          $writer.WriteEndDocument()
+        }
+        finally {
+          $writer.Dispose()
+        }
+
+        if ($failedCount -ne 0) {
+          throw "$failedCount of $($results.Count) ${{ parameters.hostingMode }} System composition preflight checks failed."
+        }
+
+        Write-Host "##[section]SWITCHER PREFLIGHT (${{ parameters.hostingMode }}): $passedCount host paths certified System composition."
+        Write-Host '##vso[task.setvariable variable=SwitcherPreflightCertified]true'
+
+  - task: PublishTestResults@2
+    condition: and(always(), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+    displayName: 'Publish ${{ parameters.hostingMode }} switcher preflight results'
+    inputs:
+      testResultsFormat: xUnit
+      testResultsFiles: switcher-preflight-results-${{ parameters.hostingMode }}.xml
+      searchFolder: $(switcherPreflightPublishDirectory)
+      mergeTestResults: true
+      failTaskOnFailedTests: true
+      testRunTitle: 'Switcher ${{ parameters.hostingMode }} System composition preflight'
+
+  - ${{ if eq(parameters.hostingMode, 'UAP') }}:
+    - task: powershell@2
+      condition: and(succeeded(), eq(variables['SwitcherPreflightCertified'], 'true'))
+      displayName: Verify complete master-backed host partition
+      inputs:
+        targetType: filePath
+        filePath: build\PipelineScripts\Test-SwitcherMasterBackedHostPartition.ps1
+        arguments: >-
+          -RuntestsPath "$(testPayloadDirInner)\runtests.cmd"
+
+  - ${{ if eq(parameters.hostingMode, 'UAP') }}:
+    - task: powershell@2
+      condition: and(succeeded(), eq(variables['SwitcherPreflightCertified'], 'true'))
+      displayName: Recreate packaged switcher launch request for full suite
+      inputs:
+        targetType: filePath
+        filePath: build\PipelineScripts\Set-SwitcherLaunchRequest.ps1
+        arguments: >-
+          -LaunchRequestDirectory "$(testPayloadDirInner)\Test\.winui-switcher"
+          -NativeManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.native.current.xml"
+          -ManagedManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.managed.current.xml"
+      env:
+        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+  - task: powershell@2
+    condition: and(succeeded(), eq(variables['SwitcherPreflightCertified'], 'true'))
+    continueOnError: true
+    timeoutInMinutes: 220
+    displayName: 'Run ${{ parameters.hostingMode }}-supported master-backed probe'
+    inputs:
+      targetType: inline
+      workingDirectory: $(testPayloadDirInner)
+      ignoreLASTEXITCODE: true
+      script: |
+        Write-Host '##vso[task.setvariable variable=SwitcherFullSuiteStarted]true'
+        New-Item -ItemType Directory -Path "$(switcherPublishDirectory)" -Force | Out-Null
+        $log = Join-Path "$(switcherPublishDirectory)" '${{ parameters.logFileName }}'
+        $testArguments = @(
+          '*'
+          '-TestsWithMasterFilesOnly'
+          '-HostingMode:${{ parameters.hostingMode }}'
+          '/p:SwitcherMode=true'
+          '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN%'
+          '/reportLoadingIssue'
+        )
+
+        # The UAP and WPF jobs form a complete, disjoint partition of Harini's
+        # original broad selection. Respect Hosting:Mode so each test runs only
+        # in its supported host. Omitting -TestBinaryPattern makes runtests.ps1
+        # select its four default binary families.
+        & .\runtests.cmd @testArguments 2>&1 |
+            Tee-Object -FilePath $log
+        $testExitCode = $LASTEXITCODE
+
+        $summary =
+          Select-String -LiteralPath $log -Pattern 'Summary:\s*Total=(\d+).*?Passed=(\d+).*?Failed=(\d+).*?Blocked=(\d+)' |
+            Select-Object -Last 1
+        if ($summary) {
+          Write-Host "##[section]SUPPORTED-HOST PROBE (${{ parameters.hostingMode }}): $($summary.Line.Trim())"
+        }
+        else {
+          Write-Host "##[warning]Supported-host probe (${{ parameters.hostingMode }}) produced no TAEF summary."
+        }
+
+        if ($testExitCode -ne 0) {
+          Write-Host "##[warning]Supported-host probe (${{ parameters.hostingMode }}) exited with code $testExitCode."
+        }
+    env:
+      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+  - task: PowerShell@2
+    condition: always()
+    displayName: Remove full-suite switcher launch requests
+    inputs:
+      targetType: filePath
+      filePath: build\PipelineScripts\Remove-SwitcherLaunchRequests.ps1
+      arguments: -TestDirectory "$(testPayloadDirInner)\Test"
+
+  - task: PowerShell@2
+    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'))
+    displayName: Sanitize full-suite switcher artifacts
+    inputs:
+      targetType: filePath
+      filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
+      arguments: -ArtifactRoot "$(switcherPublishDirectory)"
+    env:
+      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+  - task: powershell@2
+    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+    displayName: 'Verify ${{ parameters.hostingMode }} supported-host System composition certification'
+    inputs:
+      targetType: inline
+      script: |
+        $log = Join-Path "$(switcherPublishDirectory)" '${{ parameters.logFileName }}'
+        if (-not (Test-Path -LiteralPath $log -PathType Leaf)) {
+          throw "Supported-host probe did not produce ${{ parameters.logFileName }}."
+        }
+
+        $certification =
+          Select-String -LiteralPath $log -SimpleMatch '${{ parameters.certificationMarker }}' |
+            Select-Object -First 1
+        if (-not $certification) {
+          throw "${{ parameters.hostingMode }} supported-host probe did not produce the required System composition certification: ${{ parameters.certificationMarker }}"
+        }
+
+        Write-Host "${{ parameters.hostingMode }} supported-host probe certified System composition."
+
+  - task: PowerShell@2
+    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'))
+    displayName: Collect full-suite generated trees
+    inputs:
+      targetType: inline
+      script: |
+        $dest = "$(switcherPublishDirectory)\SwitcherBaselining"
+        New-Item -ItemType Directory -Path $dest -Force | Out-Null
+        $src = Join-Path $env:USERPROFILE 'Pictures\XamlTAEFOutput'
+        if (Test-Path -LiteralPath $src) {
+          robocopy $src $dest *.save.xml *.out.xml *.png *.jpg /S /NFL /NDL /NJH /NJS | Out-Null
+          if ($LASTEXITCODE -lt 8) {
+            $global:LASTEXITCODE = 0
+          }
+          else {
+            throw "Failed to collect switcher baselining output (robocopy exit code $LASTEXITCODE)."
+          }
+        }
+        else {
+          Write-Host "No XamlTAEFOutput folder at $src - nothing to collect."
+        }
+
+  - task: PowerShell@2
+    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'))
+    displayName: Sanitize collected full-suite artifacts
+    inputs:
+      targetType: filePath
+      filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
+      arguments: -ArtifactRoot "$(switcherPublishDirectory)"
+    env:
+      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+
+  - task: PublishPipelineArtifact@1
+    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+    displayName: 'Publish ${{ parameters.hostingMode }} switcher probe output'
+    inputs:
+      targetPath: $(switcherPublishDirectory)
+      artifact: '${{ parameters.artifactName }}'

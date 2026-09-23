@@ -7,6 +7,8 @@ parameters:
   pipelineKind: '' # can be: Nightly, CI, PR, BuildAndTest, TestLocalBuild, ValidateWindowsAppSDK
   testPayloadArtifactName: 'TestPayload'
   includeWinUIGallery: true
+  switcherMode: 0
+  taefExtraParameters: ''
 
 jobs:
 - job: ${{ parameters.runTestJobName }}
@@ -92,6 +94,12 @@ jobs:
     - ${{ if ne(parameters.pipelineKind, 'ValidateWindowsAppSDK') }}:
       - name: isValidateWindowsAppSDKRun
         value: 0
+    - ${{ if ne(parameters.switcherMode, 0) }}:
+      - name: switcherPayloadAdditionalArguments
+        value: '-IncludeSwitcherIXMP'
+    - ${{ else }}:
+      - name: switcherPayloadAdditionalArguments
+        value: ''
     - name: ob_sdl_codeSignValidation_excludes
       value: '-|packaging\**;-|**\Test\**;-|**\Taef\**;-|**\TestDependencies\**;-|TestPayload\**;-|**\Microsoft.Internal.FrameworkUdk.dll'
 
@@ -167,7 +175,7 @@ jobs:
     inputs:
       targetType: filePath
       filePath: test\CreateTestPayload.ps1
-      arguments: -BinSourceRoot $(artifactsDir)\drop -Platform $(buildPlatform) -Configuration $(normalizedConfiguration) -Mode ${{ parameters.testSuite }} -SkipSymbols $(scenarioPayloadAdditionalArguments)
+      arguments: -BinSourceRoot $(artifactsDir)\drop -Platform $(buildPlatform) -Configuration $(normalizedConfiguration) -Mode ${{ parameters.testSuite }} -SkipSymbols $(scenarioPayloadAdditionalArguments) $(switcherPayloadAdditionalArguments)
 
   - task: CopyFiles@2
     displayName: MoveToOutputDirectory
@@ -182,6 +190,8 @@ jobs:
         outputProjFileName: 'RunTestsInHelix-MUXControlsInteractionTests.proj'
         testBinaryPath: $(testBinaryPath)
         taefQuery: $(taefQuery)
+        taefExtraParameters: ${{ parameters.taefExtraParameters }}
+        switcherMode: ${{ parameters.switcherMode }}
         targetOsVersion: $(targetOsVersion)
         taefExePath: $(taefExePath)
 
@@ -191,17 +201,34 @@ jobs:
         outputProjFileName: 'RunTestsInHelix-MUXControlsApiTests.proj'
         testBinaryPath: $(testBinaryPath)
         taefQuery: $(taefQuery)
+        taefExtraParameters: ${{ parameters.taefExtraParameters }}
+        switcherMode: ${{ parameters.switcherMode }}
         targetOsVersion: $(targetOsVersion)
         taefExePath: $(taefExePath)
 
-    - template: WinUI-CreateHelixProjFile-Steps.yml
-      parameters:
-        testFilePathPattern: 'Test\IXMPTestApp.appx'
-        outputProjFileName: 'RunTestsInHelix-IXMPTests.proj'
-        testBinaryPath: $(testBinaryPath)
-        taefQuery: $(taefQuery)
-        targetOsVersion: $(targetOsVersion)
-        taefExePath: $(taefExePath)
+    - ${{ if eq(parameters.switcherMode, 0) }}:
+      - template: WinUI-CreateHelixProjFile-Steps.yml
+        parameters:
+          testFilePathPattern: 'Test\IXMPTestApp.appx'
+          outputProjFileName: 'RunTestsInHelix-IXMPTests.proj'
+          testBinaryPath: $(testBinaryPath)
+          taefQuery: $(taefQuery)
+          taefExtraParameters: ${{ parameters.taefExtraParameters }}
+          switcherMode: ${{ parameters.switcherMode }}
+          targetOsVersion: $(targetOsVersion)
+          taefExePath: $(taefExePath)
+
+    - ${{ if ne(parameters.switcherMode, 0) }}:
+      - template: WinUI-CreateHelixProjFile-Steps.yml
+        parameters:
+          testFilePathPattern: 'Test\Switcher\IXMPTestApp\IXMPTestApp.Tests.exe'
+          outputProjFileName: 'RunTestsInHelix-IXMPTests.proj'
+          testBinaryPath: $(testBinaryPath)
+          taefQuery: $(taefQuery)
+          taefExtraParameters: ${{ parameters.taefExtraParameters }}
+          switcherMode: ${{ parameters.switcherMode }}
+          targetOsVersion: $(targetOsVersion)
+          taefExePath: $(taefExePath)
 
     - template: WinUI-CreateHelixProjFile-Steps.yml
       parameters:
@@ -209,7 +236,9 @@ jobs:
         outputProjFileName: 'RunTestsInHelix-MUXCoreTests.proj'
         testBinaryPath: $(testBinaryPath)
         taefQuery: $(taefQuery)
+        taefExtraParameters: ${{ parameters.taefExtraParameters }}
         hostingMode: UAP
+        switcherMode: ${{ parameters.switcherMode }}
         targetOsVersion: $(targetOsVersion)
         taefExePath: $(taefExePath)
 
@@ -219,7 +248,9 @@ jobs:
         outputProjFileName: 'RunTestsInHelix-MUXCoreTests-WPF.proj'
         testBinaryPath: $(testBinaryPath)
         taefQuery: $(taefQuery)
+        taefExtraParameters: ${{ parameters.taefExtraParameters }}
         hostingMode: WPF
+        switcherMode: ${{ parameters.switcherMode }}
         targetOsVersion: $(targetOsVersion)
         taefExePath: $(taefExePath)
 
@@ -229,7 +260,9 @@ jobs:
         outputProjFileName: 'RunTestsInHelix-MUXCoreManagedTests-WPF.proj'
         testBinaryPath: $(testBinaryPath)
         taefQuery: $(taefQuery)
+        taefExtraParameters: ${{ parameters.taefExtraParameters }}
         hostingMode: WPF
+        switcherMode: ${{ parameters.switcherMode }}
         targetOsVersion: $(targetOsVersion)
         taefExePath: $(taefExePath)
 
@@ -239,7 +272,9 @@ jobs:
         outputProjFileName: 'RunTestsInHelix-MUXCoreTests-Win32Explicit.proj'
         testBinaryPath: $(testBinaryPath)
         taefQuery: $(taefQuery)
+        taefExtraParameters: ${{ parameters.taefExtraParameters }}
         hostingMode: Win32Explicit
+        switcherMode: ${{ parameters.switcherMode }}
         targetOsVersion: $(targetOsVersion)
         taefExePath: $(taefExePath)
 
@@ -250,6 +285,8 @@ jobs:
         outputProjFileName: 'RunTestsInHelix-ScenarioTests.proj'
         testBinaryPath: $(testBinaryPath)
         taefQuery: $(taefQuery)
+        taefExtraParameters: ${{ parameters.taefExtraParameters }}
+        switcherMode: ${{ parameters.switcherMode }}
         targetOsVersion: $(targetOsVersion)
         testSuite: 'ScenarioTestSuite'
         taefExePath: $(taefExePath)
@@ -268,6 +305,94 @@ jobs:
         SourceFolder: '$(Build.SourcesDirectory)\Helix\staticTestWorkItems'
         TargetFolder: '$(ob_outputDirectory)\helixworkitems\${{ parameters.testSuite }}\$(buildPlatform)$(normalizedConfiguration)\$(testOS)\'
         Contents: '*.proj'
+
+    - ${{ if ne(parameters.switcherMode, 0) }}:
+      - task: PowerShell@2
+        displayName: Verify normal DevTestSuite work-item matrix
+        inputs:
+          targetType: inline
+          script: |
+            $muxControlsApiManifest = Join-Path `
+              "$(testBinaryPath)" `
+              'Test\UnpackagedApps\MUXControlsTestApp\AppxManifest.Centennial.xml'
+            if (-not (Test-Path -LiteralPath $muxControlsApiManifest -PathType Leaf)) {
+              throw "MUXControls API test manifest is missing from the payload: $muxControlsApiManifest"
+            }
+            $muxControlsApiManifestText =
+              Get-Content -LiteralPath $muxControlsApiManifest -Raw
+            if ($muxControlsApiManifestText.Contains('__ARCH__') -or
+                $muxControlsApiManifestText.Contains('__EXTS__')) {
+              throw "MUXControls API test manifest was not generated: $muxControlsApiManifest"
+            }
+
+            $workItemDirectory =
+              "$(ob_outputDirectory)\helixworkitems\${{ parameters.testSuite }}\$(buildPlatform)$(normalizedConfiguration)\$(testOS)"
+            $expectedProjects = @(
+              'RunTestsInHelix-MUXControlsInteractionTests.proj'
+              'RunTestsInHelix-MUXControlsApiTests.proj'
+              'RunTestsInHelix-IXMPTests.proj'
+              'RunTestsInHelix-MUXCoreTests.proj'
+              'RunTestsInHelix-MUXCoreTests-WPF.proj'
+              'RunTestsInHelix-MUXCoreManagedTests-WPF.proj'
+              'RunTestsInHelix-MUXCoreTests-Win32Explicit.proj'
+              'RunTestsInHelix-UnitTests.proj'
+            )
+            $missingProjects = @(
+              $expectedProjects |
+                Where-Object {
+                  -not (Test-Path -LiteralPath (Join-Path $workItemDirectory $_) -PathType Leaf)
+                }
+            )
+            if ($missingProjects.Count -ne 0) {
+              throw "Switcher DevTestSuite matrix is incomplete. Missing=[$($missingProjects -join ', ')]."
+            }
+
+            foreach ($projectName in $expectedProjects) {
+              $projectPath = Join-Path $workItemDirectory $projectName
+              [xml]$project = Get-Content -LiteralPath $projectPath -Raw
+              $commands = @($project.Project.ItemGroup.HelixWorkItem.Command)
+              if ($commands.Count -eq 0) {
+                throw "Switcher DevTestSuite project $projectName contains no work items."
+              }
+              foreach ($command in $commands) {
+                $commandText = [string]$command
+                if ($projectName -eq 'RunTestsInHelix-UnitTests.proj') {
+                  if ($commandText.Contains('/p:SwitcherMode=') -or
+                      $commandText.Contains('/p:SwitcherLafToken=') -or
+                      $commandText.Contains('/p:SwitcherRunId=')) {
+                    throw 'Isolated UnitTests must retain their ordinary non-composition command.'
+                  }
+                } else {
+                  foreach ($requiredArgument in @(
+                      '/p:SwitcherMode=true',
+                      '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN%',
+                      '/p:SwitcherRunId=$(Build.BuildId)',
+                      '/reportLoadingIssue')) {
+                    if (-not $commandText.Contains($requiredArgument)) {
+                      throw "Switcher DevTestSuite project $projectName is missing $requiredArgument."
+                    }
+                  }
+                  foreach ($requiredQuery in @(
+                      "@Classification='Integration'",
+                      '@TestPass:MinOSVer<=$(targetOsVersion)',
+                      '@TestPass:MaxOSVer>=$(targetOsVersion)')) {
+                    if (-not $commandText.Contains($requiredQuery)) {
+                      throw "Switcher DevTestSuite project $projectName is missing normal Win11-25H2 query '$requiredQuery'."
+                    }
+                  }
+                  if ($projectName -eq 'RunTestsInHelix-IXMPTests.proj' -and
+                      -not $commandText.Contains(
+                        'Test\Switcher\IXMPTestApp\IXMPTestApp.Tests.exe')) {
+                    throw (
+                      'Switcher IXMP work items must use the authorized loose package layout.')
+                  }
+                }
+              }
+            }
+            Write-Host (
+              "Switcher DevTestSuite matrix contains all $($expectedProjects.Count) " +
+              'normal per-OS work-item project families; its seven composition-capable ' +
+              'families carry the Switcher parameters.')
 
   - script: |
       dir /s $(artifactsDir)

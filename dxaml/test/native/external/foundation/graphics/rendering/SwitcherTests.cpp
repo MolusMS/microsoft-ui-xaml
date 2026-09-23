@@ -35,36 +35,41 @@ Platform::String^ SwitcherTests::GetResourcesPath() const
 
 bool SwitcherTests::ClassSetup()
 {
-    // Enable the switcher BEFORE any compositor or composition object is created.
-    // CompositionEngine::TrySetProcessEngine must be called before InitializeXaml.
-    // Signature: bool TrySetProcessEngine(CompositionEngineType requested);
+    // The packaged entry point selects System before Application::Start.
+    // ClassSetup validates the matching TAEF credential but must not repeat the one-shot
+    // TrySetProcessEngine call after packaged XAML startup.
     try
     {
         WEX::Common::String switcherLafToken;
-        if (SUCCEEDED(WEX::TestExecution::RuntimeParameters::TryGetValue(L"SwitcherLafToken", switcherLafToken))
-            && !switcherLafToken.IsEmpty())
+        if (FAILED(WEX::TestExecution::RuntimeParameters::TryGetValue(
+                L"SwitcherLafToken",
+                switcherLafToken)) ||
+            switcherLafToken.IsEmpty())
         {
-            auto unlockResult = ::Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
-                ref new Platform::String(L"com.microsoft.windows.composition.engine"),
-                ref new Platform::String(static_cast<const wchar_t*>(switcherLafToken)),
-                ref new Platform::String(
-                    L"8wekyb3d8bbwe has registered their use of "
-                    L"com.microsoft.windows.composition.engine with Microsoft and agrees to the terms of use."));
-            WEX::Logging::Log::Comment(WEX::Common::String().Format(
-                L"SwitcherTests: LAF TryUnlockFeature status=%d",
-                static_cast<int>(unlockResult->Status)));
-        }
-
-        bool ok = Microsoft::UI::Composition::CompositionEngine::TrySetProcessEngine(
-            Microsoft::UI::Composition::CompositionEngineType::System);
-
-        if (!ok)
-        {
-            WEX::Logging::Log::Comment(WEX::Common::String().Format(
-                L"TrySetProcessEngine(System) did not engage (ok=%d) - skipping",
-                static_cast<int>(ok)));
+            WEX::Logging::Log::Comment(
+                L"Composition switcher tests require a non-empty LAF token.");
             return false;
         }
+
+        auto unlockResult = ::Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
+            ref new Platform::String(L"com.microsoft.windows.composition.engine"),
+            ref new Platform::String(reinterpret_cast<const wchar_t*>(
+                switcherLafToken.GetBuffer())),
+            ref new Platform::String(
+                L"8wekyb3d8bbwe has registered their use of "
+                L"com.microsoft.windows.composition.engine with Microsoft and agrees to the terms of use."));
+        WEX::Logging::Log::Comment(WEX::Common::String().Format(
+            L"SwitcherTests: LAF status=%d",
+            static_cast<int>(unlockResult->Status)));
+        if (unlockResult->Status !=
+            ::Windows::ApplicationModel::LimitedAccessFeatureStatus::Available)
+        {
+            WEX::Logging::Log::Comment(WEX::Common::String().Format(
+                L"Composition switcher LAF authorization failed (status=%d)",
+                static_cast<int>(unlockResult->Status)));
+            return false;
+        }
+
     }
     catch (Platform::Exception^ ex)
     {
@@ -74,7 +79,8 @@ bool SwitcherTests::ClassSetup()
         return false;
     }
 
-    WEX::Logging::Log::Comment(L"Switcher enabled via CompositionEngine::TrySetProcessEngine(System)");
+    WEX::Logging::Log::Comment(
+        L"Switcher LAF token authorized; the packaged entry point owns System engine selection.");
 
     CommonTestSetupHelper::CommonTestClassSetup();
     return true;
@@ -89,7 +95,7 @@ bool SwitcherTests::TestSetup()
 {
     // Tests in this class mirror the lifted CompNodeTests pattern: inject MockDComp,
     // load XAML, call VerifyMockDCompOutput. Switcher is enabled process-wide in
-    // ClassSetup via CompositionEngine::TrySetProcessEngine(System).
+    // the packaged entry point before Application::Start.
     test_infra::TestServices::WindowHelper->InitializeXaml();
     return true;
 }
@@ -175,7 +181,7 @@ void SwitcherTests::CompNode11WUCFullSwitcherWithMockDComp()
 void SwitcherTests::CompNode12WUCFullSwitcherWithMockDComp()
 {
     TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode12.xaml");
+    LoadAndVerifySwitcherWithMockDComp(L"CompNode12.xaml", false /* waitForIdle */);
 }
 
 void SwitcherTests::CompNode13WUCFullSwitcherWithMockDComp()
@@ -186,7 +192,7 @@ void SwitcherTests::CompNode13WUCFullSwitcherWithMockDComp()
 
 // Shared helper for switcher + MockDComp tests. Mirrors the original CompNode1WUCFullSwitcherWithMockDComp
 // body so that every CompNode*WUCFullSwitcher* test exercises an identical flow.
-void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupFile)
+void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupFile, bool waitForIdle)
 {
     auto wh = TestServices::WindowHelper;
     auto u = TestServices::Utilities;
@@ -200,7 +206,14 @@ void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupF
     {
         wh->WindowContent = root;
     });
-    wh->WaitForIdle();
+    if (waitForIdle)
+    {
+        wh->WaitForIdle();
+    }
+    else
+    {
+        wh->SynchronouslyTickUIThread(3);
+    }
 
     MockDComp::IMockDCompDevice^ mockDevice = wh->MockDCompDevice;
     VERIFY_IS_NOT_NULL(
@@ -212,6 +225,16 @@ void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupF
 }
 
 void SwitcherTests::VerifyLiftedSystemCompositionPath()
+{
+    VerifyLiftedSystemCompositionPathImpl();
+}
+
+void SwitcherTests::VerifyManagedPackagedHostSystemCompositionPath()
+{
+    VerifyLiftedSystemCompositionPathImpl();
+}
+
+void SwitcherTests::VerifyLiftedSystemCompositionPathImpl()
 {
     // Public-API proof of the lifted->system path. CompositionEngine::GetForSystemEngine()
     // returns the underlying system-composition object for a lifted Microsoft.UI.Composition

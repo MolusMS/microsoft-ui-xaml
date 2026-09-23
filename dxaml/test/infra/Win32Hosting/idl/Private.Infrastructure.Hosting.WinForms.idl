@@ -54,6 +54,7 @@ namespace Private
                 runtimeclass HostFactory
                 {
                     [default] interface Private.Infrastructure.Hosting.IWin32HostFactory;
+                    interface Private.Infrastructure.Hosting.IWin32HostFactorySwitcher;
                     interface Windows.Foundation.IStringable;
                 }
 

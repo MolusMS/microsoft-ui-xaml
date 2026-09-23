@@ -9,6 +9,7 @@
 #include <Microsoft.UI.Xaml.h>
 #include "TestEvent.h"
 #include "WaitForDebugger.h"
+#include "SwitcherTestProcess.h"
 #include <functional>
 #include <array>
 #include <Microsoft.UI.Composition.SystemBackdrops.h>
@@ -71,6 +72,14 @@ public:
 private:
     int m_onLaunchedCallCount {0};
 };
+
+WindowsXamlManager^ InitializeWindowsXamlManagerForCurrentThread()
+{
+    WindowsXamlManager^ manager =
+        WindowsXamlManager::InitializeForCurrentThread();
+    SwitcherTestProcess::CertifySystemCompositionIfRequested();
+    return manager;
+}
 
 StackPanel^ CreateControlSubtree(
     Platform::Object^ buttonContent,
@@ -155,6 +164,7 @@ DesktopWindowXamlSource^ CreateDesktopWindowXamlSource(
     WEX::TestExecution::SetVerifyOutput verifySettings(WEX::TestExecution::VerifyOutputSettings::LogOnlyFailures);
 
     DesktopWindowXamlSource^ dwxs = ref new DesktopWindowXamlSource();
+    SwitcherTestProcess::CertifySystemCompositionIfRequested();
     LOG_OUTPUT(L"  ui> DesktopWindowXamlSource created.");
 
     // Breadcrumb for OS bug #63350935: connecting/re-creating an island can AV in IXP's
@@ -181,6 +191,7 @@ XamlIsland^ CreateXamlIsland(
     WEX::TestExecution::SetVerifyOutput verifySettings(WEX::TestExecution::VerifyOutputSettings::LogOnlyFailures);
 
     XamlIsland^ xi = ref new XamlIsland();
+    SwitcherTestProcess::CertifySystemCompositionIfRequested();
     LOG_OUTPUT(L"  ui> XamlIsland created.");
 
     // Breadcrumb for OS bug #63350935: connecting/re-creating an island can AV in IXP's
@@ -202,6 +213,8 @@ void XamlIslandTests::ClearFlags()
 
 bool XamlIslandTests::TestSetup()
 {
+    SwitcherTestProcess::SelectSystemCompositionIfRequested();
+
     // Need a better way to do this. This breaks between every test. Without it, we don't get a chance to attach at all.
     // Do this during ClassSetup?
     WaitForDebugger();
@@ -340,7 +353,8 @@ void XamlIslandTests::IslandsRequireDispatcherQueueController()
         try
         {
             LOG_OUTPUT(L"Creating WindowsXamlManager...");
-            WindowsXamlManager^ wxm = WindowsXamlManager::InitializeForCurrentThread();
+            WindowsXamlManager^ wxm =
+                InitializeWindowsXamlManagerForCurrentThread();
         }
         catch (Platform::Exception^ ex)
         {
@@ -355,7 +369,8 @@ void XamlIslandTests::IslandsRequireDispatcherQueueController()
         try
         {
             LOG_OUTPUT(L"Creating WindowsXamlManager...");
-            WindowsXamlManager^ wxm = WindowsXamlManager::InitializeForCurrentThread();
+            WindowsXamlManager^ wxm =
+                InitializeWindowsXamlManagerForCurrentThread();
         }
         catch (Platform::Exception^ ex)
         {
@@ -384,19 +399,19 @@ void XamlIslandTests::WindowsXamlManagerCreationScenarios()
         auto dqc {DispatcherQueueController::CreateOnCurrentThread()};
 
         LOG_OUTPUT(L"Creating WindowsXamlManager wxm1...");
-        wxm1 = WindowsXamlManager::InitializeForCurrentThread();
+        wxm1 = InitializeWindowsXamlManagerForCurrentThread();
 
         DrainMessageQueue();
 
         LOG_OUTPUT(L"Close wxm1 and create wxm2 before wxm1 has finished closing...");
         CloseObject(wxm1);
 
-        wxm2 = WindowsXamlManager::InitializeForCurrentThread();
+        wxm2 = InitializeWindowsXamlManagerForCurrentThread();
 
         LOG_OUTPUT(L"Drain message queue and try creating wxm2, wxm3 again...");
         DrainMessageQueue();
-        wxm2 = WindowsXamlManager::InitializeForCurrentThread();
-        wxm3 = WindowsXamlManager::InitializeForCurrentThread();
+        wxm2 = InitializeWindowsXamlManagerForCurrentThread();
+        wxm3 = InitializeWindowsXamlManagerForCurrentThread();
 
         DrainMessageQueue();
 
@@ -422,7 +437,8 @@ void XamlIslandTests::WindowsXamlManagerKeptAlive()
         VERIFY_IS_NULL(WindowsXamlManager::GetForCurrentThread());
 
         LOG_OUTPUT(L"Creating WindowsXamlManager wxm1...");
-        WindowsXamlManager^ wxm1 = WindowsXamlManager::InitializeForCurrentThread();
+        WindowsXamlManager^ wxm1 =
+            InitializeWindowsXamlManagerForCurrentThread();
         IUnknown* rawUnk1 {reinterpret_cast<IUnknown*>(wxm1)};
 
         LOG_OUTPUT(L"Close wxm1 and let go of the reference.");
@@ -432,7 +448,8 @@ void XamlIslandTests::WindowsXamlManagerKeptAlive()
         DrainMessageQueue();
 
         LOG_OUTPUT(L"Creating WindowsXamlManager wxm2...");
-        WindowsXamlManager^ wxm2 = WindowsXamlManager::InitializeForCurrentThread();
+        WindowsXamlManager^ wxm2 =
+            InitializeWindowsXamlManagerForCurrentThread();
         IUnknown* rawUnk2 {reinterpret_cast<IUnknown*>(wxm2)};
         VERIFY_ARE_EQUAL(rawUnk1, rawUnk2);
 
@@ -468,7 +485,7 @@ void XamlIslandTests::ValidateXamlShutdownCompletedOnThread()
     {
         safe_cast<DesktopWindowXamlSource^>(ih1->DesktopWindowXamlSource)->Content = CreateControlSubtree("Button1");
 
-        wxm1 = WindowsXamlManager::InitializeForCurrentThread();
+        wxm1 = InitializeWindowsXamlManagerForCurrentThread();
         wxm1->XamlShutdownCompletedOnThread +=
             ref new ::Windows::Foundation::TypedEventHandler<
                 WindowsXamlManager^, XamlShutdownCompletedOnThreadEventArgs^>(
@@ -484,7 +501,7 @@ void XamlIslandTests::ValidateXamlShutdownCompletedOnThread()
     {
         safe_cast<DesktopWindowXamlSource^>(ih2->DesktopWindowXamlSource)->Content = CreateControlSubtree("Button2");
 
-        wxm2 = WindowsXamlManager::InitializeForCurrentThread();
+        wxm2 = InitializeWindowsXamlManagerForCurrentThread();
         wxm2->XamlShutdownCompletedOnThread +=
             ref new ::Windows::Foundation::TypedEventHandler<
                 WindowsXamlManager^, XamlShutdownCompletedOnThreadEventArgs^>(
@@ -536,12 +553,12 @@ void XamlIslandTests::ValidateXamlShutdownCompletedOnThreadWithDeferral()
         VERIFY_IS_NULL(Application::Current);
 
         LOG_OUTPUT(L"Creating WindowsXamlManager wxm1...");
-        wxm1 = WindowsXamlManager::InitializeForCurrentThread();
+        wxm1 = InitializeWindowsXamlManagerForCurrentThread();
 
         VERIFY_IS_NOT_NULL(WindowsXamlManager::GetForCurrentThread());
         VERIFY_IS_NOT_NULL(Application::Current);
 
-        wxm2 = WindowsXamlManager::InitializeForCurrentThread();
+        wxm2 = InitializeWindowsXamlManagerForCurrentThread();
 
         wxm1->XamlShutdownCompletedOnThread +=
             ref new ::Windows::Foundation::TypedEventHandler<
@@ -643,7 +660,7 @@ void XamlIslandTests::XamlUnloadsAutomatically()
         auto dqc {DispatcherQueueController::CreateOnCurrentThread()};
 
         LOG_OUTPUT(L"Creating WindowsXamlManager wxm1.");
-        wxm1 = WindowsXamlManager::InitializeForCurrentThread();
+        wxm1 = InitializeWindowsXamlManagerForCurrentThread();
 
         DrainMessageQueue();
 
@@ -900,7 +917,8 @@ void XamlIslandTests::WindowsXamlManagerOnDifferentThreadsStress()
             ClearFlag(id);
             LOG_OUTPUT(L"Thread %d iteration %d", id, i);
 
-            WindowsXamlManager^ wxm = WindowsXamlManager::InitializeForCurrentThread();
+            WindowsXamlManager^ wxm =
+                InitializeWindowsXamlManagerForCurrentThread();
 
             DispatcherQueueTimer^ dqTimer {dqc->DispatcherQueue->CreateTimer()};
             ::Windows::Foundation::TimeSpan timeSpan{};
@@ -957,7 +975,8 @@ void XamlIslandTests::ApplicationLikeFileExplorerStress()
         {
             ClearFlag(id);
 
-            WindowsXamlManager^ wxm = WindowsXamlManager::InitializeForCurrentThread();
+            WindowsXamlManager^ wxm =
+                InitializeWindowsXamlManagerForCurrentThread();
 
             DispatcherQueueTimer^ dqTimer {dqc->DispatcherQueue->CreateTimer()};
             ::Windows::Foundation::TimeSpan timeSpan{};
@@ -1619,7 +1638,8 @@ void XamlIslandTests::FailFastWhenXamlNotShutdown()
         auto dqc {DispatcherQueueController::CreateOnCurrentThread()};
 
         LOG_OUTPUT(L"Creating WindowsXamlManager...");
-        WindowsXamlManager^ wxm = WindowsXamlManager::InitializeForCurrentThread();
+        WindowsXamlManager^ wxm =
+            InitializeWindowsXamlManagerForCurrentThread();
 
         dqc->ShutdownQueue();
     });
@@ -1635,7 +1655,8 @@ void XamlIslandTests::FailFastWhenMessagesNotPumpedAfterClosing()
         auto dqc {DispatcherQueueController::CreateOnCurrentThread()};
 
         LOG_OUTPUT(L"Creating WindowsXamlManager...");
-        WindowsXamlManager^ wxm = WindowsXamlManager::InitializeForCurrentThread();
+        WindowsXamlManager^ wxm =
+            InitializeWindowsXamlManagerForCurrentThread();
 
         DrainMessageQueue();
 
@@ -1813,7 +1834,7 @@ void XamlIslandTests::ShutdownWithLeakDetection()
         dq = dqc->DispatcherQueue;
         uiThreadReady.Set();
 
-        wxm = WindowsXamlManager::InitializeForCurrentThread();
+        wxm = InitializeWindowsXamlManagerForCurrentThread();
 
         dqc->DispatcherQueue->RunEventLoop();
 
@@ -2177,7 +2198,7 @@ void XamlIslandTests::LoadedImageSurface_DecodeOnShutdownCrash()
         dq = dqc->DispatcherQueue;
         uiThreadReady.Set();
 
-        wxm = WindowsXamlManager::InitializeForCurrentThread();
+        wxm = InitializeWindowsXamlManagerForCurrentThread();
 
         // Note: This call lets DispatcherQueue run the message pump and turns this UI thread into a "live app" that
         // responds to input and messages. It exits when we receive the WM_QUIT message posted at the end of the test.
@@ -3791,6 +3812,7 @@ void XamlIslandTests::ValidateDispatcherShutdownModeInDesktopApp()
         Application::Start(ref new ApplicationInitializationCallback(
             [](ApplicationInitializationCallbackParams^) {
                 auto app = ref new Application();
+                SwitcherTestProcess::CertifySystemCompositionIfRequested();
                 LOG_OUTPUT(L"DispatcherShutdownMode should default to OnLastWindowClose in this case.");
                 VERIFY_ARE_EQUAL(DispatcherShutdownMode::OnLastWindowClose, Application::Current->DispatcherShutdownMode);
 

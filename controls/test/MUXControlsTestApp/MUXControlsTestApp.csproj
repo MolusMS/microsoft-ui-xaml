@@ -102,6 +102,12 @@
   </ItemGroup>
   <ItemGroup>
     <Reference Include="@(WinUIEditWinMD)" />
+    <!-- IXP currently publishes its managed projection only for .NET 6; that assembly is forward-compatible with this .NET 8 app. -->
+    <Reference Include="Microsoft.InteractiveExperiences.Projection.dll">
+      <HintPath>$(LiftedIXPPackagePath)\lib\net6.0-windows$(CurrentLiftedIXPTargetPlatformVersion)\Microsoft.InteractiveExperiences.Projection.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Compile Include="..\SwitcherComposition.cs" Link="SwitcherComposition.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="$(MUXProjectRoot)build\WinUITest.pfx" />
@@ -150,6 +156,8 @@
     <PackageReference Include="Microsoft.Windows.CsWinRT" />
     <PackageReference Include="Microsoft.Taef" />
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" />
+    <!-- Keep the self-contained IXP runtime aligned with the projection used by SwitcherComposition. -->
+    <PackageReference Include="$(LiftedIXPPackageName)" />
     <PackageReference Include="DiffPlex">
       <NoWarn>
         NU1701; <!-- Package 'x' was restored using 'y' instead of the project target framework 'z'. This package may not be fully compatible with your project. -->
@@ -394,13 +402,34 @@
       <FileWrites Include="$(TeProcessHostManifestPath);$(TeProcessHostMergedManifestPath)" />
     </ItemGroup>
   </Target>
+  <PropertyGroup>
+    <SwitcherLafExecutablePath>$(OutDir)$(AssemblyName).exe</SwitcherLafExecutablePath>
+    <SwitcherLafResourceScript>$(MUXProjectRoot)build\PipelineScripts\Set-LimitedAccessFeatureIdentityResource.ps1</SwitcherLafResourceScript>
+    <SwitcherLafResourceStamp>$(IntermediateOutputPath)$(AssemblyName).switcher-laf-resource.stamp</SwitcherLafResourceStamp>
+  </PropertyGroup>
+  <Target Name="ApplySwitcherLafIdentityResource"
+      AfterTargets="Build"
+      Inputs="$(SwitcherLafExecutablePath);$(SwitcherLafResourceScript)"
+      Outputs="$(SwitcherLafResourceStamp)">
+    <Error
+        Condition="!Exists('$(SwitcherLafExecutablePath)')"
+        Text="The unpackaged MUXControlsTestApp executable was not found: $(SwitcherLafExecutablePath)" />
+    <RunPowershellScript
+        Path="$(SwitcherLafResourceScript)"
+        Parameters="-ExecutablePath &quot;$(SwitcherLafExecutablePath)&quot; -PackageFamilyName &quot;XamlTAEFTests_8wekyb3d8bbwe&quot;"
+        FilesWritten="$(SwitcherLafResourceStamp)" />
+    <Touch Files="$(SwitcherLafResourceStamp)" AlwaysCreate="true" />
+    <ItemGroup>
+      <FileWrites Include="$(SwitcherLafResourceStamp)" />
+    </ItemGroup>
+  </Target>
   <Target Name="CopyPayloadFiles">
     <Copy SourceFiles="@(Content)" DestinationFiles="@(Content->'$(OutDir)%(Link)')" Condition="'%(Content.Link)' != ''" />
     <Copy SourceFiles="@(Content)" DestinationFiles="@(Content->'$(OutDir)%(Identity)')" Condition="'%(Content.Link)' == '' and !$([System.IO.Path]::IsPathRooted('%(Identity)'))" />
     <Copy SourceFiles="@(Content)" DestinationFiles="@(Content->'$(OutDir)%(Filename)%(Extension)')" Condition="'%(Content.Link)' == '' and $([System.IO.Path]::IsPathRooted('%(Identity)'))" />
   </Target>
 
-  <Target Name="BinplaceOutDir" BeforeTargets="Binplace" DependsOnTargets="CopyVCLibs;CopyDotNet;ApplyManifestToTeProcessHostExe;CopyPayloadFiles">
+  <Target Name="BinplaceOutDir" BeforeTargets="Binplace" DependsOnTargets="CopyVCLibs;CopyDotNet;ApplyManifestToTeProcessHostExe;CopyPayloadFiles;ApplySwitcherLafIdentityResource">
     <PropertyGroup>
       <UnpackagedAppsDirectory>$(ArtifactsObjDir)controls\test\MUXControls.Test\UnpackagedApps\$(MSBuildProjectName)\</UnpackagedAppsDirectory>
     </PropertyGroup>

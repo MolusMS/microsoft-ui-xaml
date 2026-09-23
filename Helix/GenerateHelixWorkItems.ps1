@@ -30,8 +30,8 @@ Param(
     [bool]$IsValidateWindowsAppSDKRun = $false,
 
     # When true, engages the lifted system-composition switcher for this pass by passing
-    # /p:SwitcherMode=true to te.exe. This both flips the backend in ModuleSetup and makes the
-    # test infra prefer .master.switcher.<ext> baselines (falling back to .master.<ext>).
+    # /p:SwitcherMode=true to te.exe. The hosting path selects the backend before creating XAML,
+    # and the test infra prefers .master.switcher.<ext> baselines (falling back to .master.<ext>).
     [bool]$SwitcherMode = $false,
 
     [string]$TaefExePath
