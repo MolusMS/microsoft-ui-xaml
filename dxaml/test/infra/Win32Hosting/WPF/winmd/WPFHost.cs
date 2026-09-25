@@ -43,12 +43,17 @@ namespace Private.Infrastructure.Hosting.WPF
         private bool noExit;
         private readonly bool initializeXamlManager;
         private readonly DpiAwarenessContext _dpiAwarenessContext;
+        private readonly string switcherLafToken;
 
-        internal WPFHost(DpiAwarenessContext dpiAwarenessContext, bool initializeXamlManager)
+        internal WPFHost(
+            DpiAwarenessContext dpiAwarenessContext,
+            bool initializeXamlManager,
+            string switcherLafToken)
         {
             this.noExit = true;
             this.initializeXamlManager = initializeXamlManager;
             this._dpiAwarenessContext = dpiAwarenessContext;
+            this.switcherLafToken = switcherLafToken;
             if (Application.Current == null)
             {
                 this.application = new WPFApp();
@@ -77,6 +82,11 @@ namespace Private.Infrastructure.Hosting.WPF
             try
             {
                 var dqc = MUD::DispatcherQueueController.CreateOnCurrentThread();
+                if (this.switcherLafToken != null)
+                {
+                    // Selection is one-shot and must precede XAML/compositor creation.
+                    CompositionSwitcher.Configure(this.switcherLafToken);
+                }
 
                 this.hostDispatcher.SetResult(Dispatcher.CurrentDispatcher);
                 while (noExit)
@@ -90,12 +100,14 @@ namespace Private.Infrastructure.Hosting.WPF
                         // using (new XamlApplication())
                         using (WUX.Hosting.WindowsXamlManager.InitializeForCurrentThread())
                         {
+                            CertifyCompositionSwitcher();
                             this.WindowMessageLoop();
                         }
                     }
                     else
                     {
                         // Dont call InitializeForCurrentThread() and let the test own the xaml core
+                        CertifyCompositionSwitcher();
                         this.WindowMessageLoop();
                     }
                     dispatcher.DoEvents();
@@ -128,6 +140,14 @@ namespace Private.Infrastructure.Hosting.WPF
                 dispatcher.UnhandledException -= this.OnDispatcherUnhandledException;
                 this.dispatcherQueue.TrySetResult(null);
                 this.currentWindow.TrySetResult(null);
+            }
+        }
+
+        private void CertifyCompositionSwitcher()
+        {
+            if (this.switcherLafToken != null)
+            {
+                CompositionSwitcher.Certify();
             }
         }
 

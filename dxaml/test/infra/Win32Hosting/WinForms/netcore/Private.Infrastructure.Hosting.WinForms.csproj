@@ -17,6 +17,7 @@
     <Compile Include="..\src\XamlContentHostLayout.cs" />
     <Compile Include="..\src\XamlContentUpdatedEventArgs.cs" />
     <Compile Include="..\..\winmd\AppDomainExceptionHandler.cs" />
+    <Compile Include="..\..\winmd\CompositionSwitcher.cs" />
   </ItemGroup>
 
   <ItemGroup>

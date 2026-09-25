@@ -7,16 +7,33 @@ using Windows.Foundation;
 namespace Private.Infrastructure.Hosting.WPF
 {
     [global::Windows.Foundation.Metadata.MarshalingBehavior(global::Windows.Foundation.Metadata.MarshalingType.Agile)]
-    public sealed partial class HostFactory : IWin32HostFactory 
+    public sealed partial class HostFactory : IWin32HostFactory, IWin32HostFactorySwitcher
     {
+        private string switcherLafToken;
+
         public void SetExceptionHandler(ExceptionHandler handler)
         {
             AppDomainExceptionHandler.SetExceptionHandler(handler);
         }
 
+        public void ConfigureCompositionSwitcher(string lafToken)
+        {
+            if (string.IsNullOrEmpty(lafToken))
+            {
+                throw new ArgumentException(
+                    "Composition switcher tests require a non-empty LAF token.",
+                    nameof(lafToken));
+            }
+
+            switcherLafToken = lafToken;
+        }
+
         private async Task<object> CreateInternal(DpiAwarenessContext dpiAwarenessContext, bool initCore)
         {
-            var wpfHost = new WPFHost(dpiAwarenessContext, initCore);
+            var wpfHost = new WPFHost(
+                dpiAwarenessContext,
+                initCore,
+                switcherLafToken);
             await wpfHost.EnsureWindow();
             return wpfHost;
         }
@@ -27,4 +44,3 @@ namespace Private.Infrastructure.Hosting.WPF
         }
     }
 }
-

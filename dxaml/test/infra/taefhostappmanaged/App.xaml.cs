@@ -4,12 +4,16 @@ using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using Private.Infrastructure.Hosting;
 using Windows.ApplicationModel;
 
 namespace TaefHostAppManaged
 {
     sealed partial class App : Application
     {
+        private const string SwitcherCertificationEnvironmentVariable =
+            "WINUI_SWITCHER_SYSTEM_COMPOSITION_CERTIFIED";
+
         public App()
         {
             RequiresPointerMode = ApplicationRequiresPointerMode.WhenRequested;
@@ -18,6 +22,18 @@ namespace TaefHostAppManaged
 
         protected override void OnLaunched(LaunchActivatedEventArgs e)
         {
+            Environment.SetEnvironmentVariable(
+                SwitcherCertificationEnvironmentVariable,
+                null,
+                EnvironmentVariableTarget.Process);
+
+            var switcherLafToken = Program.ReadSwitcherLafToken();
+            if (switcherLafToken != null)
+            {
+                // Select before window activation, matching the native packaged host.
+                CompositionSwitcher.Configure(switcherLafToken);
+            }
+
             Frame rootFrame = Window.Current.Content as Frame;
 
             if (rootFrame == null)
@@ -30,7 +46,16 @@ namespace TaefHostAppManaged
             if (e.UWPLaunchActivatedEventArgs.PrelaunchActivated == false)
             {
                 Window.Current.Activate();
-                
+
+                if (CompositionSwitcher.IsConfigured)
+                {
+                    CompositionSwitcher.Certify();
+                    Environment.SetEnvironmentVariable(
+                        SwitcherCertificationEnvironmentVariable,
+                        "managed",
+                        EnvironmentVariableTarget.Process);
+                }
+
                 if (e.Arguments.Length > 1)
                 {
                     Microsoft.VisualStudio.TestPlatform.TestExecutor.UnitTestClient.Run(e.Arguments);

@@ -16,7 +16,8 @@ param (
   [switch]$forceHostingMode,
   [string]$fromFile,
   [switch]$SwitcherInputTests,
-  [switch]$SkipPackageUninstall
+  [switch]$SkipPackageUninstall,
+  [string]$TestBinaryPattern
 )
 
 if (!$TestQuery)
@@ -38,6 +39,7 @@ if (!$TestQuery)
       -FromFile:<file> : select test names from the given file, rather than the main testQuery param (which is ignored)
       -SwitcherInputTests: select the input tests that are ready to run in switcher mode.
       -SkipPackageUninstall: skip uninstalling previous versions of sample apps. This is useful if using dll redirection since uninstalling the app deletes the entire app folder.
+      -TestBinaryPattern:<pattern>: run only the test binaries matching this TAEF file pattern.
 
     This script passes through unrecognized arguments to TAEF.  See `"te.exe /!`" for TAEF parameters.
     TAEF passes through -p arguments to the Xaml tests and infrastructure, as `"-p:ParamName=Value`".
@@ -64,7 +66,16 @@ if (!$TestQuery)
     return
 }
 
-$testDllList = "Test\Microsoft.UI.Xaml.Tests.*.dll Test\MUXControls.Test.dll Test\UnpackagedApps\MUXControlsTestApp\MUXControlsTestApp.dll Test\IXMPTestApp.appx" 
+$testDllList = @(
+    "Test\Microsoft.UI.Xaml.Tests.*.dll"
+    "Test\MUXControls.Test.dll"
+    "Test\UnpackagedApps\MUXControlsTestApp\MUXControlsTestApp.dll"
+    "Test\IXMPTestApp.appx"
+)
+if (-not [string]::IsNullOrWhiteSpace($TestBinaryPattern))
+{
+    $testDllList = @($TestBinaryPattern)
+}
 $hostingModes = @("WPF", "Win32Explicit", "UAP")
 
 function get-tests {
@@ -73,8 +84,8 @@ function get-tests {
         $argsEx
     )
     $testlist = @()    
-    #Write-Host .\te.exe "/list" $testDllList.Split(" ") "/select:`"$query`""  $argsEx
-    $result = (.\te.exe "/list" $testDllList.Split(" ") "/select:`"$query`""  $argsEx)
+    #Write-Host .\te.exe "/list" $testDllList "/select:`"$query`""  $argsEx
+    $result = (.\te.exe "/list" $testDllList "/select:`"$query`""  $argsEx)
 
     $result |% {
         if ($_.StartsWith(" "*16)) {
@@ -85,6 +96,19 @@ function get-tests {
 
     # Need to use Write-Output -NoEnumerate to return as an array if we just have one element.
     Write-Output -NoEnumerate $testlist
+}
+
+function Protect-SensitiveTaefParameters {
+    param([string[]]$Arguments)
+
+    @($Arguments | ForEach-Object {
+        if ($_ -like '/p:SwitcherLafToken=*') {
+            '/p:SwitcherLafToken=***'
+        }
+        else {
+            $_
+        }
+    })
 }
 
 $TestDir = $PSScriptRoot
@@ -272,10 +296,11 @@ if($TerminateOnFirstFailure)
     $argsEx += "/terminateOnFirstFailure"
 }
 
+$loggedExtraArgs = Protect-SensitiveTaefParameters $ExtraArgs
 Write-Host $argsEx
-Write-Host $ExtraArgs
+Write-Host $loggedExtraArgs
 
-Write-Host ".\te.exe "Test\Microsoft.UI.Xaml.Tests.*.dll" "Test\MUXControls.Test.dll" "Test\UnpackagedApps\MUXControlsTestApp\MUXControlsTestApp.dll" "Test\IXMPTestApp.appx" "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $ExtraArgs"
-.\te.exe "Test\Microsoft.UI.Xaml.Tests.*.dll" "Test\MUXControls.Test.dll" "Test\UnpackagedApps\MUXControlsTestApp\MUXControlsTestApp.dll" "Test\IXMPTestApp.appx" "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $ExtraArgs
+Write-Host ".\te.exe" $testDllList "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $loggedExtraArgs
+.\te.exe $testDllList "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $ExtraArgs
 
 Pop-Location

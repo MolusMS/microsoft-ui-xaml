@@ -19,6 +19,8 @@ using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Private.Media;
 using Common;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Xaml.Tests.Common;
+using MUXControlsTestApp.Utilities;
 
 using WEX.TestExecution;
 using WEX.TestExecution.Markup;
@@ -40,6 +42,17 @@ namespace MUXControlsTestApp
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Required parameter.")]
         public static void Main(string[] args)
         {
+            Run(
+                args,
+                null,
+                false);
+        }
+
+        internal static void Run(
+            string[] args,
+            string switcherLafToken,
+            bool enableXamlOptionalChanges)
+        {
             // In 19H1 and above, WinRT activation is set up for us.  Below 19H1, we need to manually set up detours.
             if (PlatformConfiguration.IsOSVersionLessThan(OSVersion.NineteenH1))
             {
@@ -48,6 +61,20 @@ namespace MUXControlsTestApp
             }
 
             WinRT.ComWrappersSupport.InitializeComWrappers();
+            if (!string.IsNullOrEmpty(switcherLafToken))
+            {
+                SwitcherComposition.Configure(switcherLafToken);
+            }
+            else
+            {
+                SwitcherComposition.ConfigureFromLaunchRequest();
+            }
+
+            if (enableXamlOptionalChanges)
+            {
+                ApiTestBase.EnableAllXamlOptionalChanges();
+            }
+
             Microsoft.UI.Xaml.Application.Start((p) => {
                 var context = new Microsoft.UI.Dispatching.DispatcherQueueSynchronizationContext(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
                 SynchronizationContext.SetSynchronizationContext(context);
@@ -337,6 +364,11 @@ namespace MUXControlsTestApp
 
             // Ensure the current window is active
             App.CurrentWindow.Activate();
+
+            if (SwitcherComposition.IsRequested)
+            {
+                SwitcherComposition.Certify();
+            }
 
             ShowWindow(Process.GetCurrentProcess().MainWindowHandle, SW_SHOWMAXIMIZED);
 

@@ -11,6 +11,7 @@ using WEX.TestExecution;
 using WEX.TestExecution.Markup;
 using WEX.Logging.Interop;
 using MUXControlsTestApp.Utilities;
+using Microsoft.UI.Xaml.Tests.Common;
 
 namespace MUXControlsTestApp
 {
@@ -28,8 +29,31 @@ namespace MUXControlsTestApp
         [TestProperty("IsolationLevel", "Class")]
         [TestProperty("RunAs", "UAP")]
         [TestProperty("UAP:Host", "PackagedCWA")]
+        [TestProperty("UAP:AppXManifest", "AppXManifest.Centennial.xml")]
         public static void AssemblyInitialize(TestContext testContext)
         {
+            bool switcherRequested =
+                testContext.Properties.Contains("SwitcherMode") &&
+                SwitcherComposition.IsTrue(
+                    Convert.ToString(testContext.Properties["SwitcherMode"]));
+            bool switcherExpected =
+                testContext.Properties.Contains("SwitcherLafToken") ||
+                !string.IsNullOrEmpty(
+                    Environment.GetEnvironmentVariable(
+                        "SWITCHER_LAF_TOKEN",
+                        EnvironmentVariableTarget.Process));
+            if (switcherExpected)
+            {
+                Verify.IsTrue(
+                    switcherRequested,
+                    "MUXControls API tests must receive SwitcherMode when the pipeline provides its credential.");
+            }
+
+            string switcherLafToken = switcherRequested &&
+                testContext.Properties.Contains("SwitcherLafToken")
+                ? Convert.ToString(testContext.Properties["SwitcherLafToken"])
+                : null;
+
             if (testContext.Properties.Contains("WaitForDebugger") || testContext.Properties.Contains("WaitForAppDebugger"))
             {
                 var processId = Windows.System.Diagnostics.ProcessDiagnosticInfo.GetForCurrentProcess().ProcessId;
@@ -45,19 +69,49 @@ namespace MUXControlsTestApp
                 DebugBreak();
             }
 
-            ApiTestBase.EnableAllXamlOptionalChanges();
-
             // This is the entry point for API tests rather than Program.Main, so we'll call that on another thread
             // in order to initialize the XAML application for API testing.  It needs to be on its own thread because
             // it doesn't return - it contains the application loop.
 #nullable enable
+            Exception? appStartupException = null;
+            var appStartupFailedEvent = new ManualResetEvent(false);
             _ = ThreadPool.QueueUserWorkItem((object? param) =>
             {
-                Program.Main(Array.Empty<string>());
+                try
+                {
+                    Program.Run(
+                        Array.Empty<string>(),
+                        switcherLafToken,
+                        true);
+                }
+                catch (Exception exception)
+                {
+                    appStartupException = exception;
+                    appStartupFailedEvent.Set();
+                }
             });
 #nullable restore
 
-            App.AppLaunchedEvent.WaitOne();
+            int startupResult = WaitHandle.WaitAny(
+                new WaitHandle[]
+                {
+                    App.AppLaunchedEvent,
+                    appStartupFailedEvent
+                });
+            if (startupResult == 1)
+            {
+                throw new InvalidOperationException(
+                    "MUXControlsTestApp API startup failed before XAML activation.",
+                    appStartupException);
+            }
+            if (switcherRequested)
+            {
+                Verify.IsTrue(
+                    SwitcherComposition.IsConfigured,
+                    "MUXControlsTestApp API process must certify System composition before tests run.");
+                Log.Comment(
+                    "SwitcherMode: MUXControlsTestApp API process selected and certified System composition.");
+            }
         }
 
         [DllImport("kernel32.dll")]

@@ -56,4 +56,13 @@ namespace Private.Infrastructure.Hosting
         Windows.Foundation.IAsyncOperation<object> Create(DpiAwarenessContext dpiAwarenessContext, bool initCore);
     }
 
+#if BUILD_WINDOWS
+    [CLSCompliant(false)]
+#endif
+    [Windows.Foundation.Metadata.Guid(0x1499e536, 0xdf13, 0x4c72, 0x91, 0x50, 0xb8, 0xb0, 0x6b, 0x38, 0x4b, 0x69)]
+    public interface IWin32HostFactorySwitcher
+    {
+        void ConfigureCompositionSwitcher(string lafToken);
+    }
+
 }
