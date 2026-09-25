@@ -17,6 +17,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Common;
+using Microsoft.UI.Xaml.Tests.Common;
 
 using WEX.TestExecution;
 using WEX.TestExecution.Markup;
@@ -35,6 +36,7 @@ namespace IXMPTestApp
         /// </summary>
         public App()
         {
+            SwitcherComposition.ConfigureFromPackagedLaunchRequest();
             this.InitializeComponent();
         }
 
@@ -76,6 +78,11 @@ namespace IXMPTestApp
                 }
                 // Ensure the current window is active
                 Window.Current.Activate();
+
+                if (SwitcherComposition.IsRequested)
+                {
+                    SwitcherComposition.Certify();
+                }
 
                 // If there are multiple arguments we assume we're being launched as a TAEF AppX test, so start up the TAEF dispatcher.
                 if (e.Arguments.Length > 0)

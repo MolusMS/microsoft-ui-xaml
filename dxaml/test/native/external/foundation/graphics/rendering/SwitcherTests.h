@@ -18,6 +18,8 @@ public:
         TEST_CLASS_PROPERTY(L"Classification", L"Integration")
         TEST_CLASS_PROPERTY(L"VelocityTestPass:OneCoreStrict", L"Desktop")
         TEST_CLASS_PROPERTY(L"HelixWorkItemCreation", L"CreateWorkItemPerTestClass")
+        // Requires the dedicated secret-backed packaged launch path.
+        TEST_CLASS_PROPERTY(L"Ignore", L"TRUE")
     END_TEST_CLASS()
 
     TEST_CLASS_SETUP(ClassSetup)
@@ -97,10 +99,19 @@ public:
         TEST_METHOD_PROPERTY(L"Description", L"Engagement certifier: uses CompositionEngine::GetForSystemEngine to verify the lifted compositor's system-engine equivalent is Windows.UI.Composition.Compositor (proves lifted->system routing, not a silent no-op). Because the backend flip is process-wide, this one proof certifies the whole SwitcherMode run.")
     END_TEST_METHOD()
 
+    BEGIN_TEST_METHOD(VerifyManagedPackagedHostSystemCompositionPath)
+        TEST_METHOD_PROPERTY(L"Description", L"Engagement certifier for the managed packaged entry point: runs the native proof inside XamlManagedTAEFTests and verifies lifted-to-system composition routing.")
+        TEST_METHOD_PROPERTY(L"UAP:AppXManifest", L"AppXManifest.managed.current.xml")
+        TEST_METHOD_PROPERTY(L"UAP:Praid", L"XamlManagedTAEFTests")
+    END_TEST_METHOD()
+
 private:
     // Switcher + MockDComp variant: loads markup, runs render walk under switcher with
     // MockDComp interposed, dumps tree XML and compares to master.
-    void LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupFile);
+    void LoadAndVerifySwitcherWithMockDComp(
+        Platform::String^ markupFile,
+        bool waitForIdle = true);
+    void VerifyLiftedSystemCompositionPathImpl();
 
     inline Platform::String^ GetResourcesPath() const;
 };

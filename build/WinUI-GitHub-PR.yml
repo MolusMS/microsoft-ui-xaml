@@ -181,10 +181,9 @@ extends:
           # Test results are published but do not gate the pipeline yet.
           failOnTestFailure: false
 
-    # Composition switcher tests on a ge_current agent under /p:SwitcherMode=true. The stage template lives
-    # in THIS repo (self, not @WinUIInternal) because it is part of the switcher work. It unlocks the
-    # CompositionEngine LAF via the CompositionSwitcherLafToken variable (ADO Library group WinUI-InternalFeed,
-    # referenced by name only — the value never appears in this public yaml).
+    # Composition switcher tests use the internal masked LAF token on a ge_current agent.
+    # The stage template lives in THIS repo (self, not @WinUIInternal) because it is part of
+    # the switcher work. Token material is supplied only through secret task environments.
     - ${{ if eq(parameters.runFullValidation, true) }}:
       - template: AzurePipelinesTemplates\WinUI-RunSwitcherTests-Stage.yml
 

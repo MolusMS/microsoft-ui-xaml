@@ -13,6 +13,7 @@
 #include <XamlTailored.h>
 #include "TestEvent.h"
 #include "WaitForDebugger.h"
+#include "SwitcherTestProcess.h"
 #include <functional>
 #include <wrl.h>
 #include <windowsnumerics.h>
@@ -68,6 +69,8 @@ struct WindowlessXamlIslandScene
 {
     void Create(DispatcherQueue^ dq)
     {
+        SwitcherTestProcess::CertifySystemCompositionIfRequested();
+
         appWindow = AppWindow::Create();
         appWindow->Title = L"WindowlessXamlIslandTest";
         appWindow->MoveAndResize({ 50, 50, 800, 600 });
@@ -284,6 +287,8 @@ struct WindowlessXamlIslandScene
 
 bool WindowlessXamlIslandTests::TestSetup()
 {
+    SwitcherTestProcess::SelectSystemCompositionIfRequested();
+
     // Need a better way to do this. This breaks between every test. Without it, we don't get a chance to attach at all.
     // Do this during ClassSetup?
     WaitForDebugger();

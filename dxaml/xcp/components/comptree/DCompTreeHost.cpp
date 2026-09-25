@@ -488,11 +488,9 @@ DCompTreeHost::EnsureDCompDevice() noexcept
     LoadMockDevice();
     #endif
 
-    // The static factory can survive device loss. No need to create it again.
-    if (m_easingFunctionStatics == nullptr)
-    {
-        m_easingFunctionStatics = ActivationFactoryCache::GetActivationFactoryCache()->GetCompositionEasingFunctionStatics();
-    }
+    // MockDComp injection and removal reset the process-wide factory cache. Refresh this
+    // per-host reference when recreating the compositor so it follows the active backend.
+    m_easingFunctionStatics = ActivationFactoryCache::GetActivationFactoryCache()->GetCompositionEasingFunctionStatics();
 
     IFC_RETURN(m_pCompositionHelper.Initialize(this));
 

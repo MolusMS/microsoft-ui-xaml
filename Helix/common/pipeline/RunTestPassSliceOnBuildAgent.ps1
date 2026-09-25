@@ -102,10 +102,17 @@ foreach($workItem in $workItemsToRun)
 
     # Due to the presence of quotes, symbols, etc. we cannot directly invoke $command from Powershell. So instead we write it to
     # a .cmd file and invoke that.
-    $fullCommand = "$precommand`n$command"
+    $fullCommand = "@echo off`n$precommand`n$command"
     Write-Host $fullCommand
     Out-File -FilePath "temp-runworkitem.cmd" -Encoding ascii -InputObject $fullCommand
-    & ./temp-runworkitem.cmd | Tee-Object -file $consoleLogOutputFile
+    try
+    {
+        & ./temp-runworkitem.cmd | Tee-Object -file $consoleLogOutputFile
+    }
+    finally
+    {
+        Remove-Item -LiteralPath ".\temp-runworkitem.cmd" -Force
+    }
 
     if(!$SkipCopyTestResultsXml)
     {
