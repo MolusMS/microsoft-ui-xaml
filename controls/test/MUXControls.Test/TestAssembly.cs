@@ -47,4 +47,27 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
             TestEnvironment.AssemblyCleanup();
         }
     }
+
+    [TestClass]
+    public class MuxControlsInteractionSwitcherCertificationTests
+    {
+        [ClassInitialize]
+        [TestProperty("RunAs", "User")]
+        [TestProperty("TestPass:IncludeOnlyOn", "Desktop")]
+        [TestProperty("HelixWorkItemCreation", "CreateWorkItemPerTestClass")]
+        public static void ClassInitialize(TestContext testContext)
+        {
+            TestEnvironment.Initialize(testContext);
+        }
+
+        [TestMethod]
+        [TestProperty("Ignore", "TRUE")]
+        [TestProperty("Description", "Launches MUXControlsTestApp and requires its exact process to certify System composition.")]
+        public void VerifyMuxControlsInteractionSwitcherSystemCompositionPath()
+        {
+            Verify.IsNotNull(TestEnvironment.Application);
+            Verify.IsNotNull(TestEnvironment.Application.Process);
+            Verify.IsNotNull(TestEnvironment.Application.CoreWindow);
+        }
+    }
 }

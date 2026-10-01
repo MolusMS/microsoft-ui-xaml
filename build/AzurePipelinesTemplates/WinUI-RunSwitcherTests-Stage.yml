@@ -7,11 +7,14 @@ parameters:
   - name: taefQuery
     type: string
     default: >-
-      (@Name='*SwitcherTests*' AND
-      NOT(@Name='*VerifyManagedPackagedHostSystemCompositionPath'))
+      (@Name='*SwitcherTests*' OR
+      @Name='*VerifyWpfSwitcherSystemCompositionPath' OR
+      @Name='*VerifyMuxControlsInteractionSwitcherSystemCompositionPath' OR
+      @Name='*VerifyMuxControlsApiSwitcherSystemCompositionPath' OR
+      @Name='*VerifyIxmpSwitcherSystemCompositionPath')
   - name: expectedTestCount
     type: number
-    default: 14
+    default: 15
   - name: winUIDetailsPrBuildId
     type: string
     default: ''
@@ -135,7 +138,10 @@ stages:
 
             $expectedMethods = @(
               1..13 | ForEach-Object { "CompNode${_}WUCFullSwitcherWithMockDComp" }
-            ) + 'VerifyLiftedSystemCompositionPath'
+            ) + @(
+              'VerifyLiftedSystemCompositionPath'
+              'VerifyManagedPackagedHostSystemCompositionPath'
+            )
             $expectedTestCount = ${{ parameters.expectedTestCount }}
             $expectedPassedCount = $expectedTestCount - 1
             $knownFailureMethod = 'CompNode12WUCFullSwitcherWithMockDComp'
@@ -176,7 +182,8 @@ stages:
             }
 
             foreach ($certificationMethod in @(
-                'VerifyLiftedSystemCompositionPath')) {
+                'VerifyLiftedSystemCompositionPath',
+                'VerifyManagedPackagedHostSystemCompositionPath')) {
               $certificationTest = @(
                 $testCases |
                   Where-Object { [string]$_.method -eq $certificationMethod }
@@ -206,31 +213,104 @@ stages:
               Write-Host "No XamlTAEFOutput folder at $src - nothing to collect (test produced no trees)."
             }
 
-  - template: WinUI-RunSwitcherHostPreflight-Job.yml
+  - template: WinUI-RunTestPassOnPipeline-Job.yml
     parameters:
-      jobName: RunSwitcherHostPreflight_UAP_x86chk
-      displayName: 'Certify and probe UAP-supported master-backed tests under System composition'
-      logFileName: fullsuite-switcher-probe-uap.log
-      artifactName: switcher_fullsuite_uap_x86chk
-      hostingMode: UAP
-      preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.External.*.dll'
-      certificationMarker: 'SwitcherMode: native packaged UAP test process selected and certified System composition.'
-      runIgnoredTests: true
-      preflightTestSelector: 'SwitcherTests*VerifyLiftedSystemCompositionPath'
-      preflightLogFileName: switcher-preflight-uap-native.log
-      winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
-      expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
+      runTestStageName: RunSwitcherTests
+      runTestJobName: RunSwitcherHostCertification_x86chk
+      dependsOn: CreateSwitcherTestPayload_x86chk
+      buildPlatform: x86
+      buildConfiguration: chk
+      testOS: Win11-25H2
+      testSuite: DevTestSuite
+      rerunPassesRequiredToAvoidFailure: 1
+      testPayloadArtifactName: SwitcherTestPayload
+      failOnTestFailure: true
+      agentPoolName: WinDevPool-Test
+      imageOverride: ge_current-vhdx_enterprise
+      parallelJobs: 1
+      workItemsProjNameFilter: 'RunTestsInHelix-MUXCoreManagedTests-WPF.proj;RunTestsInHelix-MUXControlsInteractionTests.proj;RunTestsInHelix-MUXControlsApiTests.proj;RunTestsInHelix-IXMPTests.proj'
+      jobTimeoutInMinutes: 150
+      testTimeoutInMinutes: 120
+      preTestSteps:
+      - task: PowerShell@2
+        displayName: Run private test pre-execution setup
+        inputs:
+          targetType: filePath
+          filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
+          arguments: >-
+            -EntryPoint TestPreExecutionSetup
+            -MockDCompPath "$(testPayloadDir)\Test\MockDComp.dll"
+            -Platform $(buildPlatform)
+      postTestSteps:
+      - task: PowerShell@2
+        condition: always()
+        displayName: Run private test post-execution cleanup
+        inputs:
+          targetType: filePath
+          filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
+          arguments: >-
+            -EntryPoint TestPostExecutionCleanup
+            -MockDCompPath "$(testPayloadDir)\Test\MockDComp.dll"
+            -Platform $(buildPlatform)
 
-  - template: WinUI-RunSwitcherHostPreflight-Job.yml
-    parameters:
-      jobName: RunSwitcherHostPreflight_WPF_x86chk
-      displayName: 'Certify and probe WPF-supported master-backed tests under System composition'
-      logFileName: fullsuite-switcher-probe-wpf.log
-      artifactName: switcher_fullsuite_wpf_x86chk
-      hostingMode: WPF
-      preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.*.dll'
-      certificationMarker: 'SwitcherMode: Private.Infrastructure.Hosting.WPF.HostFactory selected and certified System composition.'
-      preflightTestSelector: 'WPFTests*VerifyPLMHandlerNoException'
-      preflightLogFileName: switcher-preflight-wpf.log
-      winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
-      expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
+      - task: PowerShell@2
+        condition: always()
+        displayName: Verify standard host certification results
+        inputs:
+          targetType: inline
+          workingDirectory: $(Build.SourcesDirectory)\build\PipelineScripts
+          script: |
+            $expectedMethods = @(
+              'VerifyWpfSwitcherSystemCompositionPath'
+              'VerifyMuxControlsInteractionSwitcherSystemCompositionPath'
+              'VerifyMuxControlsApiSwitcherSystemCompositionPath'
+              'VerifyIxmpSwitcherSystemCompositionPath'
+            )
+            $resultPaths = @(
+              Get-ChildItem -Path (Get-Location) -Filter 'testResults-*.xml' -File
+            )
+            if ($resultPaths.Count -eq 0) {
+              throw 'No host certification xUnit results were produced.'
+            }
+
+            $testCases = @(
+              foreach ($resultPath in $resultPaths) {
+                [xml]$result = Get-Content -LiteralPath $resultPath.FullName
+                $result.SelectNodes('/assemblies/assembly/collection/test')
+              }
+            )
+            $actualMethods = @($testCases | ForEach-Object { [string]$_.method })
+            $missingMethods = @(
+              $expectedMethods | Where-Object { $actualMethods -notcontains $_ }
+            )
+            $unexpectedMethods = @(
+              $actualMethods | Where-Object { $expectedMethods -notcontains $_ }
+            )
+            $duplicateMethods = @(
+              $actualMethods |
+                Group-Object |
+                Where-Object Count -ne 1 |
+                ForEach-Object Name
+            )
+            $nonPassingMethods = @(
+              $testCases |
+                Where-Object { [string]$_.result -ne 'Pass' } |
+                ForEach-Object { [string]$_.method }
+            )
+
+            if ($testCases.Count -ne $expectedMethods.Count -or
+                $missingMethods.Count -ne 0 -or
+                $unexpectedMethods.Count -ne 0 -or
+                $duplicateMethods.Count -ne 0 -or
+                $nonPassingMethods.Count -ne 0) {
+              throw (
+                'Switcher host certification result mismatch. ' +
+                "Missing=[$($missingMethods -join ', ')] " +
+                "Unexpected=[$($unexpectedMethods -join ', ')] " +
+                "Duplicates=[$($duplicateMethods -join ', ')] " +
+                "NonPassing=[$($nonPassingMethods -join ', ')].")
+            }
+
+            Write-Host (
+              'Certified WPF, MUXControls interaction, MUXControls API, and ' +
+              'IXMP System-composition paths through standard xUnit results.')

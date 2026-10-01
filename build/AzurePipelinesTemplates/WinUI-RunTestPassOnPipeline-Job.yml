@@ -112,7 +112,7 @@ jobs:
     inputs:
       targetType: filePath
       filePath: Helix\common\pipeline\RunTestPassSliceOnBuildAgent.ps1
-      arguments: -WorkItemProjFileNameFilter $(workItemsProjNameFilter) -WorkItemProjDir $(workItemsProjDir) -TestPayloadDir $(testPayloadDir) -UploadRoot $(uploadRootInner) -JobPositionInPhase $(System.JobPositionInPhase) -TotalJobsInPhase $(System.TotalJobsInPhase) -RerunPassesRequiredToAvoidFailure ${{ parameters.rerunPassesRequiredToAvoidFailure }}
+      arguments: -WorkItemProjFileNameFilter "$(workItemsProjNameFilter)" -WorkItemProjDir $(workItemsProjDir) -TestPayloadDir $(testPayloadDir) -UploadRoot $(uploadRootInner) -JobPositionInPhase $(System.JobPositionInPhase) -TotalJobsInPhase $(System.TotalJobsInPhase) -RerunPassesRequiredToAvoidFailure ${{ parameters.rerunPassesRequiredToAvoidFailure }}
       errorActionPreference: stop
       workingDirectory: $(Build.SourcesDirectory)\build\PipelineScripts
 

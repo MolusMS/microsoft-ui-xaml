@@ -760,6 +760,31 @@ namespace Microsoft.UI.Xaml.Tests.Hosting.Win32.WPF
         }
 
         [TestMethod]
+        [TestProperty("Ignore", "TRUE")]
+        [TestProperty("Description", "Verifies the WPF XAML host selected System composition before XAML initialization.")]
+        public void VerifyWpfSwitcherSystemCompositionPath()
+        {
+            var host = TestServices.Win32Host as WPFHost;
+            Verify.IsNotNull(host);
+            Verify.IsNotNull(host.MainWindow);
+
+            host.MainWindow.Dispatcher.Invoke(() =>
+            {
+                var probeElement = new XamlControls.Grid();
+                var compositor = Xaml.Hosting.ElementCompositionPreview
+                    .GetElementVisual(probeElement)
+                    .Compositor;
+                var systemCompositor =
+                    Microsoft.UI.Composition.CompositionEngine.GetForSystemEngine(
+                        compositor);
+
+                Verify.IsTrue(
+                    systemCompositor is global::Windows.UI.Composition.Compositor,
+                    "GetForSystemEngine must return a Windows.UI.Composition.Compositor.");
+            });
+        }
+
+        [TestMethod]
         [TestProperty("Description", "Ensure that clicking on a TextBox always focuses the island")]
         [TestProperty("Ignore", "TRUE")] 
         public async Task ValidateTextBoxReceivesFocus()

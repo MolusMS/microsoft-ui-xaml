@@ -115,4 +115,22 @@ namespace MUXControlsTestApp
 #nullable restore
         }
     }
+
+    [TestClass]
+    public class MuxControlsApiSwitcherCertificationTests
+    {
+        [TestMethod]
+        [TestProperty("Ignore", "TRUE")]
+        [TestProperty("HelixWorkItemCreation", "CreateWorkItemPerTestClass")]
+        [TestProperty("Description", "Verifies MUXControlsTestApp API tests initialized XAML with System composition.")]
+        public void VerifyMuxControlsApiSwitcherSystemCompositionPath()
+        {
+            Verify.IsTrue(
+                SwitcherComposition.IsRequested,
+                "The MUXControlsTestApp API process must observe the System composition request.");
+            Verify.IsTrue(
+                SwitcherComposition.IsConfigured,
+                "The MUXControlsTestApp API process must certify System composition.");
+        }
+    }
 }

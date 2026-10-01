@@ -63,4 +63,22 @@ namespace MUXControlsTestApp
             }
         }
     }
+
+    [TestClass]
+    public class IxmpSwitcherCertificationTests
+    {
+        [TestMethod]
+        [TestProperty("Ignore", "TRUE")]
+        [TestProperty("HelixWorkItemCreation", "CreateWorkItemPerTestClass")]
+        [TestProperty("Description", "Verifies IXMPTestApp initialized XAML with System composition.")]
+        public void VerifyIxmpSwitcherSystemCompositionPath()
+        {
+            Verify.IsTrue(
+                SwitcherComposition.IsRequested,
+                "IXMPTestApp must observe the System composition request.");
+            Verify.IsTrue(
+                SwitcherComposition.IsConfigured,
+                "IXMPTestApp must certify System composition.");
+        }
+    }
 }
