@@ -11,7 +11,6 @@ namespace Win32Hosting
         const wchar_t* factory,
         test_infra::Hosting::DpiAwarenessContext dpiAwarenessContext,
         bool initCore,
-        bool switcherMode,
-        HSTRING switcherLafToken);
+        bool switcherMode);
     wrl::ComPtr<msy::IDispatcherQueue> GetDispatcherQueueFromWin32XamlContentRoot(wrl::ComPtr<test_infra::Hosting::IWin32Host> win32Host);
 }

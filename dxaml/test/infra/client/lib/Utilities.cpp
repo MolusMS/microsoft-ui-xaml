@@ -1469,8 +1469,8 @@ namespace Private { namespace Infrastructure {
 
     }
 
-    // Returns true when the test run was launched with /p:SwitcherMode=true, i.e. the lifted
-    // system-composition switcher is engaged process-wide (see ModuleSetup in ModuleCleanup.cpp).
+    // Returns true when the test run was launched with /p:SwitcherMode=true, i.e. its host path
+    // selects the System composition engine before creating XAML or compositor objects.
     // Under switcher the composition tree can differ from the baseline WUC path, so a
     // switcher-specific baseline (.master.switcher.<ext>) is preferred when present.
     static bool IsSwitcherMode()
@@ -2611,4 +2611,3 @@ namespace Private { namespace Infrastructure {
         COM_END
     }
 } } // namespace Private::Infrastructure
-

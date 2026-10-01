@@ -98,19 +98,6 @@ function get-tests {
     Write-Output -NoEnumerate $testlist
 }
 
-function Protect-SensitiveTaefParameters {
-    param([string[]]$Arguments)
-
-    @($Arguments | ForEach-Object {
-        if ($_ -like '/p:SwitcherLafToken=*') {
-            '/p:SwitcherLafToken=***'
-        }
-        else {
-            $_
-        }
-    })
-}
-
 $TestDir = $PSScriptRoot
 
 Push-Location $TestDir
@@ -296,11 +283,10 @@ if($TerminateOnFirstFailure)
     $argsEx += "/terminateOnFirstFailure"
 }
 
-$loggedExtraArgs = Protect-SensitiveTaefParameters $ExtraArgs
 Write-Host $argsEx
-Write-Host $loggedExtraArgs
+Write-Host $ExtraArgs
 
-Write-Host ".\te.exe" $testDllList "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $loggedExtraArgs
+Write-Host ".\te.exe" $testDllList "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $ExtraArgs
 .\te.exe $testDllList "/p:SkipConsoleWindowMinimize" "/select:`"$queryArgs`"" $argsEx $ExtraArgs
 
 Pop-Location

@@ -361,6 +361,9 @@
   <data name="XamlCompiler_TypeMustHaveANamespace" xml:space="preserve">
     <value>Invalid class name '{0}'. Types must be in a namespace to be referenced in XAML; they cannot be declared in the global namespace</value>
   </data>
+  <data name="XamlCompiler_VerifyWorkDoneFailed" xml:space="preserve">
+    <value>XAML compiler pass 2 completed, but {0} item(s) still appear out of date. This usually indicates stale intermediate output or intermediate files copied from another source tree. The build will continue, but the affected intermediate output should be removed before rebuilding. Details:{1}{2}</value>
+  </data>
   <data name="XamlCompiler_InternalErrorProcessingStyle" xml:space="preserve">
     <value>Internal error while processing Style</value>
   </data>

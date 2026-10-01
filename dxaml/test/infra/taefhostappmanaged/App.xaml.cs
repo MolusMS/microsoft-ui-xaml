@@ -27,13 +27,6 @@ namespace TaefHostAppManaged
                 null,
                 EnvironmentVariableTarget.Process);
 
-            var switcherLafToken = Program.ReadSwitcherLafToken();
-            if (switcherLafToken != null)
-            {
-                // Select before window activation, matching the native packaged host.
-                CompositionSwitcher.Configure(switcherLafToken);
-            }
-
             Frame rootFrame = Window.Current.Content as Frame;
 
             if (rootFrame == null)
@@ -49,7 +42,7 @@ namespace TaefHostAppManaged
 
                 if (CompositionSwitcher.IsConfigured)
                 {
-                    CompositionSwitcher.Certify();
+                    CompositionSwitcher.Certify(rootFrame);
                     Environment.SetEnvironmentVariable(
                         SwitcherCertificationEnvironmentVariable,
                         "managed",

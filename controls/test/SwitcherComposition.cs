@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
@@ -6,45 +6,53 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
-using Windows.ApplicationModel;
+using Microsoft.UI.Composition;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
+using Windows.Storage;
 
 namespace Microsoft.UI.Xaml.Tests.Common
 {
     internal static class SwitcherComposition
     {
-        private const string FeatureId = "com.microsoft.windows.composition.engine";
-        private const string Attestation =
-            "8wekyb3d8bbwe has registered their use of com.microsoft.windows.composition.engine " +
-            "with Microsoft and agrees to the terms of use.";
+        private const string TestInfrastructureRegistryPath =
+            @"Software\Microsoft\WinUITestInfrastructure";
+        private const string UseSystemCompositionEngineValueName =
+            "UseSystemCompositionEngine";
         private const string RequestDirectoryName = ".winui-switcher";
-        private const string TokenFileName = "system-backend";
         private const string RequestIdFileName = "request-id";
-        private const string RunIdFileName = "run-id";
-        private const string ExpirationFileName = "expires-at";
-        private const string CertificationFileName = "system-backend.certified";
-        private const string FailureFileName = "system-backend.error";
-        private const int MaximumRequestValueSize = 64 * 1024;
-
+        private const string CertificationFileName = "certified-response";
+        private const string FailureFileName = "failure-response";
+        private const int MaximumRequestValueLength = 4096;
+        private const int MaximumResponseLength = 4096;
+        private const int ErrorFileNotFound = 2;
+        private const int ErrorPathNotFound = 3;
+        private const int ErrorInvalidData = 13;
+        private const uint RrfRtRegDword = 0x00000010;
+        private const uint RrfSubKeyWow6464Key = 0x00010000;
+        private const uint RrfSubKeyWow6432Key = 0x00020000;
+        private static readonly IntPtr HKeyLocalMachine =
+            new IntPtr(unchecked((int)0x80000002));
         private static readonly object SyncRoot = new object();
+        private static bool switcherRequested;
         private static bool systemCompositionSelected;
         private static bool systemCompositionCertified;
-        private static bool switcherRequested;
-        private static string configuredLafToken;
-        private static string configuredRunId;
+        private static string pendingRequestId;
         private static string pendingCertificationPath;
         private static string pendingFailurePath;
-        private static string pendingRequestId;
 
-        internal static bool IsConfigured
-        {
-            get
-            {
-                lock (SyncRoot)
-                {
-                    return systemCompositionCertified;
-                }
-            }
-        }
+        [DllImport(
+            "api-ms-win-core-registry-l1-1-0.dll",
+            CharSet = CharSet.Unicode,
+            EntryPoint = "RegGetValueW")]
+        private static extern int RegGetValue(
+            IntPtr key,
+            string subKey,
+            string value,
+            uint flags,
+            out uint type,
+            out uint data,
+            ref uint dataSize);
 
         internal static bool IsRequested
         {
@@ -57,242 +65,51 @@ namespace Microsoft.UI.Xaml.Tests.Common
             }
         }
 
-        internal static bool ConfigureFromLaunchRequest()
+        internal static bool IsConfigured
         {
-            string requestDirectory = Path.Combine(
-                AppContext.BaseDirectory,
-                RequestDirectoryName);
-            return ConfigureFromLaunchRequest(
-                requestDirectory,
-                null,
-                null,
-                true);
-        }
-
-        internal static bool ConfigureFromPackagedLaunchRequest()
-        {
-            // TAEF removes package data before activation, so this request must live outside LocalState.
-            string programData =
-                global::Windows.Storage.SystemDataPaths.GetDefault().ProgramData;
-            if (string.IsNullOrEmpty(programData))
+            get
             {
-                throw new InvalidOperationException(
-                    "The ProgramData directory is unavailable.");
+                lock (SyncRoot)
+                {
+                    return systemCompositionCertified;
+                }
             }
-
-            string requestDirectory = Path.Combine(
-                programData,
-                "Microsoft",
-                "WinUI",
-                "CompositionSwitcher",
-                "Requests",
-                Package.Current.Id.FamilyName,
-                RequestDirectoryName);
-            return ConfigureFromLaunchRequest(
-                requestDirectory,
-                RunIdFileName,
-                ExpirationFileName,
-                false);
         }
 
-        internal static bool IsConfiguredFor(string lafToken, string runId)
+        internal static bool ConfigureFromRegistryRequest()
         {
             lock (SyncRoot)
             {
-                return systemCompositionCertified &&
-                    string.Equals(
-                        configuredLafToken,
-                        lafToken,
-                        StringComparison.Ordinal) &&
-                    string.Equals(
-                        configuredRunId,
-                        runId,
-                        StringComparison.Ordinal);
-            }
-        }
+                if (systemCompositionSelected)
+                {
+                    return true;
+                }
 
-        private static bool ConfigureFromLaunchRequest(
-            string requestDirectory,
-            string runIdFileName,
-            string expirationFileName,
-            bool writeCertification)
-        {
-            if (!Directory.Exists(requestDirectory))
-            {
-                return false;
-            }
-            if (!string.IsNullOrEmpty(expirationFileName))
-            {
-                string expirationPath = Path.Combine(
-                    requestDirectory,
-                    expirationFileName);
-                string expiration = File.Exists(expirationPath)
-                    ? ReadBoundedText(expirationPath)
-                    : null;
-                DateTimeOffset expirationTime;
-                if (!DateTimeOffset.TryParseExact(
-                        expiration,
-                        "O",
-                        CultureInfo.InvariantCulture,
-                        DateTimeStyles.RoundtripKind,
-                        out expirationTime) ||
-                    expirationTime <= DateTimeOffset.UtcNow)
+                if (!IsSystemCompositionRequested())
                 {
                     return false;
                 }
-            }
 
-            string requestId = ReadBoundedText(
-                Path.Combine(requestDirectory, RequestIdFileName));
-            Guid parsedRequestId;
-            if (!Guid.TryParse(requestId, out parsedRequestId))
-            {
-                throw new InvalidDataException(
-                    "The composition switcher launch request identifier is invalid.");
-            }
-
-            string lafToken = ReadBoundedText(
-                Path.Combine(requestDirectory, TokenFileName));
-            string runId = string.IsNullOrEmpty(runIdFileName)
-                ? null
-                : ReadBoundedText(
-                    Path.Combine(requestDirectory, runIdFileName));
-            string certificationPath = Path.Combine(
-                requestDirectory,
-                CertificationFileName);
-            string failurePath = Path.Combine(
-                requestDirectory,
-                FailureFileName);
-            if (writeCertification)
-            {
-                if (File.Exists(certificationPath))
-                {
-                    File.Delete(certificationPath);
-                }
-                if (File.Exists(failurePath))
-                {
-                    File.Delete(failurePath);
-                }
-            }
-
-            lock (SyncRoot)
-            {
-                pendingCertificationPath = writeCertification
-                    ? certificationPath
-                    : null;
-                pendingFailurePath = writeCertification
-                    ? failurePath
-                    : null;
-                pendingRequestId = parsedRequestId.ToString(
-                    "D",
-                    CultureInfo.InvariantCulture);
-            }
-
-            try
-            {
-                Configure(lafToken, runId);
-            }
-            catch (Exception exception)
-            {
-                WritePendingFailure(
-                    "selection",
-                    exception,
-                    lafToken);
-                throw;
-            }
-
-            return true;
-        }
-
-        internal static void Configure(string lafToken)
-        {
-            Configure(lafToken, null);
-        }
-
-        private static void Configure(
-            string lafToken,
-            string runId)
-        {
-            lock (SyncRoot)
-            {
                 switcherRequested = true;
-                if (systemCompositionSelected)
+                PrepareCertificationResponse();
+
+                try
                 {
-                    if (!string.Equals(
-                            configuredLafToken,
-                            lafToken,
-                            StringComparison.Ordinal) ||
-                        (!string.IsNullOrEmpty(runId) &&
-                            !string.Equals(
-                                configuredRunId,
-                                runId,
-                                StringComparison.Ordinal)))
+                    if (!CompositionEngine.TrySetProcessEngine(
+                            CompositionEngineType.System))
                     {
                         throw new InvalidOperationException(
-                            "Composition switcher configuration changed after selection.");
+                            "TrySetProcessEngine(System) did not engage in the test application process.");
                     }
-                    return;
-                }
-
-                if (string.IsNullOrEmpty(lafToken))
-                {
-                    throw new InvalidOperationException(
-                        "Composition switcher tests require a non-empty LAF token.");
-                }
-
-                LimitedAccessFeatureRequestResult unlockResult;
-                try
-                {
-                    unlockResult = LimitedAccessFeatures.TryUnlockFeature(
-                        FeatureId,
-                        lafToken,
-                        Attestation);
                 }
                 catch (Exception exception)
                 {
-                    throw new InvalidOperationException(
-                        "Composition switcher LAF authorization API failed " +
-                        "(HRESULT=0x" +
-                        exception.HResult.ToString(
-                            "X8",
-                            CultureInfo.InvariantCulture) +
-                        ").",
-                        exception);
-                }
-                if (unlockResult.Status != LimitedAccessFeatureStatus.Available)
-                {
-                    throw new InvalidOperationException(
-                        "Composition switcher LAF authorization failed " +
-                        "(status=" + unlockResult.Status + ").");
-                }
-
-                bool systemEngineSelected;
-                try
-                {
-                    systemEngineSelected =
-                        Microsoft.UI.Composition.CompositionEngine.TrySetProcessEngine(
-                            Microsoft.UI.Composition.CompositionEngineType.System);
-                }
-                catch (Exception exception)
-                {
-                    throw new InvalidOperationException(
-                        "Composition switcher System engine selection API failed " +
-                        "(HRESULT=0x" +
-                        exception.HResult.ToString(
-                            "X8",
-                            CultureInfo.InvariantCulture) +
-                        ").",
-                        exception);
-                }
-                if (!systemEngineSelected)
-                {
-                    throw new InvalidOperationException(
-                        "TrySetProcessEngine(System) did not engage in the test application process.");
+                    WritePendingFailure("selection", exception);
+                    throw;
                 }
 
                 systemCompositionSelected = true;
-                configuredLafToken = lafToken;
-                configuredRunId = runId;
+                return true;
             }
         }
 
@@ -312,130 +129,253 @@ namespace Microsoft.UI.Xaml.Tests.Common
 
                 try
                 {
-                    using (var compositor = new Microsoft.UI.Composition.Compositor())
+                    var probeElement = new Grid();
+                    Compositor compositor =
+                        ElementCompositionPreview.GetElementVisual(
+                            probeElement).Compositor;
+                    object systemCompositor =
+                        CompositionEngine.GetForSystemEngine(compositor);
+                    if (!(systemCompositor is
+                        global::Windows.UI.Composition.Compositor))
                     {
-                        object systemCompositor =
-                            Microsoft.UI.Composition.CompositionEngine.GetForSystemEngine(
-                                compositor);
-                        if (!(systemCompositor is global::Windows.UI.Composition.Compositor))
-                        {
-                            throw new InvalidOperationException(
-                                "GetForSystemEngine did not return a Windows.UI.Composition.Compositor.");
-                        }
+                        throw new InvalidOperationException(
+                            "GetForSystemEngine did not return a Windows.UI.Composition.Compositor.");
                     }
 
-                    if (!string.IsNullOrEmpty(pendingCertificationPath))
-                    {
-                        string certification =
-                            pendingRequestId +
-                            Environment.NewLine +
-                            GetCurrentProcessId().ToString(
-                                CultureInfo.InvariantCulture);
-                        WriteResponse(
-                            pendingCertificationPath,
-                            certification);
-                    }
-
+                    WritePendingCertification();
                     systemCompositionCertified = true;
                 }
                 catch (Exception exception)
                 {
-                    WritePendingFailure(
-                        "certification",
-                        exception,
-                        configuredLafToken);
+                    WritePendingFailure("certification", exception);
                     throw;
-                }
-            }
-        }
-
-        private static void WritePendingFailure(
-            string phase,
-            Exception exception,
-            string lafToken)
-        {
-            string failurePath = pendingFailurePath;
-            if (string.IsNullOrEmpty(failurePath))
-            {
-                return;
-            }
-
-            string failure =
-                "Composition switcher " +
-                phase +
-                " failed: " +
-                exception.GetType().FullName +
-                " (HRESULT=0x" +
-                exception.HResult.ToString("X8", CultureInfo.InvariantCulture) +
-                "): " +
-                exception.Message +
-                Environment.NewLine +
-                exception.StackTrace;
-            if (!string.IsNullOrEmpty(lafToken))
-            {
-                failure = failure.Replace(
-                    lafToken,
-                    "***");
-            }
-            WriteResponse(
-                failurePath,
-                failure);
-        }
-
-        private static void WriteResponse(
-            string path,
-            string value)
-        {
-            string temporaryPath = path + ".tmp";
-            try
-            {
-                File.WriteAllText(
-                    temporaryPath,
-                    value,
-                    new UTF8Encoding(false));
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-                File.Move(
-                    temporaryPath,
-                    path);
-            }
-            finally
-            {
-                if (File.Exists(temporaryPath))
-                {
-                    File.Delete(temporaryPath);
                 }
             }
         }
 
         internal static bool IsTrue(string value)
         {
-            return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(value, "1", StringComparison.Ordinal);
+            return string.Equals(
+                       value,
+                       "true",
+                       StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(value, "1", StringComparison.Ordinal);
         }
 
-        private static string ReadBoundedText(string path)
+        private static bool IsSystemCompositionRequested()
         {
-            using (var stream = File.Open(
-                    path,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.ReadWrite))
-            using (var reader = new StreamReader(
-                stream,
-                new UTF8Encoding(false, true),
-                false))
+            uint type;
+            uint requested;
+            uint requestedSize = sizeof(uint);
+            uint registryView =
+                IntPtr.Size == 8
+                    ? RrfSubKeyWow6464Key
+                    : RrfSubKeyWow6432Key;
+            int status = RegGetValue(
+                HKeyLocalMachine,
+                TestInfrastructureRegistryPath,
+                UseSystemCompositionEngineValueName,
+                RrfRtRegDword | registryView,
+                out type,
+                out requested,
+                ref requestedSize);
+            if (status == ErrorFileNotFound || status == ErrorPathNotFound)
             {
-                if (stream.Length <= 0 || stream.Length > MaximumRequestValueSize)
-                {
-                    throw new InvalidDataException(
-                        "A composition switcher launch request value has an invalid size.");
-                }
-
-                return reader.ReadToEnd();
+                return false;
             }
+            if (status != 0)
+            {
+                throw Marshal.GetExceptionForHR(HResultFromWin32(status));
+            }
+            if (requested != 1)
+            {
+                throw Marshal.GetExceptionForHR(
+                    HResultFromWin32(ErrorInvalidData));
+            }
+
+            return true;
+        }
+
+        private static void PrepareCertificationResponse()
+        {
+            string requestDirectory = GetRequestDirectory();
+            string requestIdPath =
+                Path.Combine(requestDirectory, RequestIdFileName);
+            if (!File.Exists(requestIdPath))
+            {
+                return;
+            }
+
+            string requestId = ReadBoundedText(requestIdPath, RequestIdFileName);
+            Guid parsedRequestId;
+            if (!Guid.TryParse(requestId, out parsedRequestId) ||
+                parsedRequestId == Guid.Empty)
+            {
+                throw new InvalidOperationException(
+                    "The Switcher launch request ID is invalid.");
+            }
+
+            pendingRequestId = parsedRequestId.ToString("D");
+            pendingCertificationPath =
+                Path.Combine(requestDirectory, CertificationFileName);
+            pendingFailurePath =
+                Path.Combine(requestDirectory, FailureFileName);
+            DeleteIfPresent(pendingCertificationPath);
+            DeleteIfPresent(pendingFailurePath);
+        }
+
+        private static string GetRequestDirectory()
+        {
+            try
+            {
+                return Path.Combine(
+                    ApplicationData.Current.LocalFolder.Path,
+                    RequestDirectoryName);
+            }
+            catch (InvalidOperationException)
+            {
+                return Path.Combine(
+                    AppContext.BaseDirectory,
+                    RequestDirectoryName);
+            }
+            catch (COMException)
+            {
+                return Path.Combine(
+                    AppContext.BaseDirectory,
+                    RequestDirectoryName);
+            }
+        }
+
+        private static string ReadBoundedText(
+            string path,
+            string description)
+        {
+            FileInfo file = new FileInfo(path);
+            if (file.Length <= 0 || file.Length > MaximumRequestValueLength)
+            {
+                throw new InvalidOperationException(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "The Switcher {0} file has an invalid length.",
+                        description));
+            }
+
+            return File.ReadAllText(path, Encoding.UTF8).Trim();
+        }
+
+        private static void WritePendingCertification()
+        {
+            if (string.IsNullOrEmpty(pendingCertificationPath))
+            {
+                return;
+            }
+
+            WriteResponse(
+                pendingCertificationPath,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "request-id={0}{1}pid={2}{1}",
+                    pendingRequestId,
+                    Environment.NewLine,
+                    GetCurrentProcessId()));
+            DeleteIfPresent(pendingFailurePath);
+        }
+
+        private static void WritePendingFailure(
+            string stage,
+            Exception exception)
+        {
+            if (string.IsNullOrEmpty(pendingFailurePath))
+            {
+                return;
+            }
+
+            string prefix = string.Format(
+                CultureInfo.InvariantCulture,
+                "request-id={0}{1}pid={2}{1}stage={3}{1}error=",
+                pendingRequestId,
+                Environment.NewLine,
+                GetCurrentProcessId(),
+                stage);
+            int maximumErrorByteCount =
+                MaximumResponseLength -
+                Encoding.UTF8.GetByteCount(prefix) -
+                Encoding.UTF8.GetByteCount(Environment.NewLine);
+            WriteResponse(
+                pendingFailurePath,
+                prefix +
+                TruncateUtf8(
+                    exception.ToString(),
+                    Math.Max(0, maximumErrorByteCount)) +
+                Environment.NewLine);
+            DeleteIfPresent(pendingCertificationPath);
+        }
+
+        private static string TruncateUtf8(
+            string value,
+            int maximumByteCount)
+        {
+            var encoding = new UTF8Encoding(false);
+            if (maximumByteCount <= 0 ||
+                string.IsNullOrEmpty(value))
+            {
+                return string.Empty;
+            }
+            if (encoding.GetByteCount(value) <= maximumByteCount)
+            {
+                return value;
+            }
+
+            char[] characters = value.ToCharArray();
+            byte[] bytes = new byte[maximumByteCount];
+            int charactersUsed;
+            int bytesUsed;
+            bool completed;
+            encoding.GetEncoder().Convert(
+                characters,
+                0,
+                characters.Length,
+                bytes,
+                0,
+                bytes.Length,
+                true,
+                out charactersUsed,
+                out bytesUsed,
+                out completed);
+            return encoding.GetString(bytes, 0, bytesUsed);
+        }
+
+        private static void WriteResponse(string path, string contents)
+        {
+            string temporaryPath = path + ".tmp";
+            try
+            {
+                File.WriteAllText(
+                    temporaryPath,
+                    contents,
+                    new UTF8Encoding(false));
+                DeleteIfPresent(path);
+                File.Move(temporaryPath, path);
+            }
+            finally
+            {
+                DeleteIfPresent(temporaryPath);
+            }
+        }
+
+        private static void DeleteIfPresent(string path)
+        {
+            if (!string.IsNullOrEmpty(path) && File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+
+        private static int HResultFromWin32(int error)
+        {
+            return error <= 0
+                ? error
+                : unchecked((int)(0x80070000u | ((uint)error & 0xffffu)));
         }
 
         [DllImport("kernel32.dll")]

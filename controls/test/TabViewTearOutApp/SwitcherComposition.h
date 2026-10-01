@@ -5,6 +5,6 @@
 
 namespace SwitcherComposition
 {
-    bool ConfigureFromLaunchRequest();
+    bool ConfigureFromRegistryRequest();
     void Certify();
 }

@@ -18,8 +18,7 @@ wrl::ComPtr<test_infra::Hosting::IWin32Host> Win32Hosting::StartWin32Host(
     const wchar_t* hostFactoryType,
     test_infra::Hosting::DpiAwarenessContext dpiAwarenessContext,
     bool initCore,
-    bool switcherMode,
-    HSTRING switcherLafToken)
+    bool switcherMode)
 {
     wrl::ComPtr<IInspectable> spInsp;
 
@@ -41,8 +40,7 @@ wrl::ComPtr<test_infra::Hosting::IWin32Host> Win32Hosting::StartWin32Host(
     {
         wrl::ComPtr<test_infra::Hosting::IWin32HostFactorySwitcher> switcherHostFactory;
         LogThrow_IfFailed(spHostFactory.As(&switcherHostFactory));
-        LogThrow_IfFailed(switcherHostFactory->ConfigureCompositionSwitcher(
-            switcherLafToken));
+        LogThrow_IfFailed(switcherHostFactory->ConfigureCompositionSwitcher(nullptr));
     }
 
     wrl::ComPtr<wf::IAsyncOperation<IInspectable*>> spAsyncOperation;

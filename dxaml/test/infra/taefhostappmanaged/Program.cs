@@ -2,57 +2,88 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System;
-using System.IO;
-using System.Text;
-using Windows.ApplicationModel;
+using System.Runtime.InteropServices;
+using Private.Infrastructure.Hosting;
 
 namespace TaefHostAppManaged
 {
     static class Program
     {
-        private const int MaximumSwitcherLafTokenSize = 64 * 1024;
+        private const string TestInfrastructureRegistryPath =
+            @"Software\Microsoft\WinUITestInfrastructure";
+        private const string UseSystemCompositionEngineValueName =
+            "UseSystemCompositionEngine";
+        private const int ErrorFileNotFound = 2;
+        private const int ErrorPathNotFound = 3;
+        private const int ErrorInvalidData = 13;
+        private const uint RrfRtRegDword = 0x00000010;
+        private const uint RrfSubKeyWow6464Key = 0x00010000;
+        private const uint RrfSubKeyWow6432Key = 0x00020000;
+        private static readonly IntPtr HKeyLocalMachine =
+            new IntPtr(unchecked((int)0x80000002));
+
+        [DllImport(
+            "api-ms-win-core-registry-l1-1-0.dll",
+            CharSet = CharSet.Unicode,
+            EntryPoint = "RegGetValueW")]
+        private static extern int RegGetValue(
+            IntPtr key,
+            string subKey,
+            string value,
+            uint flags,
+            out uint type,
+            out uint data,
+            ref uint dataSize);
 
         static void Main(string[] args)
         {
+            if (IsSystemCompositionRequested())
+            {
+                CompositionSwitcher.Configure();
+            }
+
             XamlGeneratedProgram.XamlGeneratedMain();
         }
 
-        internal static string ReadSwitcherLafToken()
+        internal static bool IsSystemCompositionRequested()
         {
-            var requestPath = Path.Combine(
-                Package.Current.InstalledLocation.Path,
-                ".winui-switcher",
-                "system-backend");
-            try
+            uint type;
+            uint requested;
+            uint requestedSize = sizeof(uint);
+            uint registryView =
+                IntPtr.Size == 8
+                    ? RrfSubKeyWow6464Key
+                    : RrfSubKeyWow6432Key;
+            int status = RegGetValue(
+                HKeyLocalMachine,
+                TestInfrastructureRegistryPath,
+                UseSystemCompositionEngineValueName,
+                RrfRtRegDword | registryView,
+                out type,
+                out requested,
+                ref requestedSize);
+            if (status == ErrorFileNotFound || status == ErrorPathNotFound)
             {
-                using (var stream = File.Open(
-                        requestPath,
-                        FileMode.Open,
-                        FileAccess.Read,
-                        FileShare.ReadWrite))
-                using (var reader = new StreamReader(
-                    stream,
-                    new UTF8Encoding(false, true),
-                    false))
-                {
-                    if (stream.Length <= 0 ||
-                        stream.Length > MaximumSwitcherLafTokenSize)
-                    {
-                        throw new InvalidDataException(
-                            "The composition switcher LAF token has an invalid size.");
-                    }
+                return false;
+            }
+            if (status != 0)
+            {
+                throw Marshal.GetExceptionForHR(HResultFromWin32(status));
+            }
+            if (requested != 1)
+            {
+                throw Marshal.GetExceptionForHR(
+                    HResultFromWin32(ErrorInvalidData));
+            }
 
-                    return reader.ReadToEnd();
-                }
-            }
-            catch (FileNotFoundException)
-            {
-                return null;
-            }
-            catch (DirectoryNotFoundException)
-            {
-                return null;
-            }
+            return true;
+        }
+
+        private static int HResultFromWin32(int error)
+        {
+            return error <= 0
+                ? error
+                : unchecked((int)(0x80070000u | ((uint)error & 0xffffu)));
         }
     }
 }

@@ -39,20 +39,6 @@ void SwitcherTestProcess::SelectSystemCompositionIfRequested()
             L"SwitcherMode",
             switcherMode)) &&
         IsTrue(switcherMode);
-    WEX::Common::String switcherLafToken;
-    const bool hasSwitcherLafToken =
-        SUCCEEDED(WEX::TestExecution::RuntimeParameters::TryGetValue(
-            L"SwitcherLafToken",
-            switcherLafToken)) &&
-        !switcherLafToken.IsEmpty();
-    const bool switcherExpected = hasSwitcherLafToken ||
-        GetEnvironmentVariableW(L"SWITCHER_LAF_TOKEN", nullptr, 0) > 0;
-    if (switcherExpected && !switcherRequested)
-    {
-        Fail(
-            E_INVALIDARG,
-            L"Win32Explicit tests did not receive SwitcherMode.");
-    }
     if (!switcherRequested)
     {
         return;
@@ -63,15 +49,6 @@ void SwitcherTestProcess::SelectSystemCompositionIfRequested()
         return;
     }
 
-    if (!hasSwitcherLafToken)
-    {
-        Fail(
-            E_INVALIDARG,
-            L"Win32Explicit Switcher mode requires a non-empty LAF token.");
-    }
-
-    const std::wstring lafToken(
-        reinterpret_cast<const wchar_t*>(switcherLafToken.GetBuffer()));
     HRESULT selectionResult = E_UNEXPECTED;
     std::thread selectionThread([&]()
     {
@@ -84,19 +61,7 @@ void SwitcherTestProcess::SelectSystemCompositionIfRequested()
 
         try
         {
-            auto unlockResult =
-                ::Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
-                    ref new Platform::String(L"com.microsoft.windows.composition.engine"),
-                    ref new Platform::String(lafToken.c_str()),
-                    ref new Platform::String(
-                        L"8wekyb3d8bbwe has registered their use of "
-                        L"com.microsoft.windows.composition.engine with Microsoft and agrees to the terms of use."));
-            if (unlockResult->Status !=
-                ::Windows::ApplicationModel::LimitedAccessFeatureStatus::Available)
-            {
-                selectionResult = E_ACCESSDENIED;
-            }
-            else if (!Microsoft::UI::Composition::CompositionEngine::TrySetProcessEngine(
+            if (!Microsoft::UI::Composition::CompositionEngine::TrySetProcessEngine(
                     Microsoft::UI::Composition::CompositionEngineType::System))
             {
                 selectionResult = E_FAIL;

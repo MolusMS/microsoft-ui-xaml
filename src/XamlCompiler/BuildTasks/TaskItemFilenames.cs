@@ -3,6 +3,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 
 namespace Microsoft.UI.Xaml.Markup.Compiler
@@ -38,7 +39,19 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
 
         private bool _outputFileIsZeroLength;
         private bool _xbfFileIsZeroLength;
+        private string _generatedFileFullPath;
         private SourceFileManager _srcMgr;
+
+        private enum OutOfDateReason
+        {
+            None,
+            GeneratedCodeMissingOrEmpty,
+            Forced,
+            Pass1SourceTimestampChanged,
+            SourceNewerThanGeneratedXaml,
+            XbfMissingOrEmpty,
+            SourceNewerThanXbf,
+        }
 
         public TaskItemFilename(IFileItem item, SourceFileManager srcMgr, bool isApplication, bool isSdkXaml)
         {
@@ -130,15 +143,15 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             _outputFileIsZeroLength = true;
 
             // Default is <Xaml_File_Name>.g.(i.)cs : To handle Resource Dictionaries that have no classes, and thus have empty GeneratedCodePathPrefixes
-            string generatedFileFullPath = Path.Combine(TargetFolder, FileNameNoExtension + this._srcMgr.GeneratedFileExtension);
+            _generatedFileFullPath = Path.Combine(TargetFolder, FileNameNoExtension + this._srcMgr.GeneratedFileExtension);
             if (!String.IsNullOrEmpty(this.GeneratedCodePathPrefix))
             {
-                generatedFileFullPath = this.GeneratedCodePathPrefix + this._srcMgr.GeneratedFileExtension;
+                _generatedFileFullPath = this.GeneratedCodePathPrefix + this._srcMgr.GeneratedFileExtension;
             }
 
-            if (File.Exists(generatedFileFullPath))
+            if (File.Exists(_generatedFileFullPath))
             {
-                FileInfo fi = new FileInfo(generatedFileFullPath);
+                FileInfo fi = new FileInfo(_generatedFileFullPath);
                 _outputFileIsZeroLength = (fi.Length == 0);
             }
 
@@ -153,6 +166,28 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         }
 
         public bool OutOfDate()
+        {
+            return GetOutOfDateReason() != OutOfDateReason.None;
+        }
+
+        public string GetOutOfDateDiagnostic()
+        {
+            OutOfDateReason reason = GetOutOfDateReason();
+            return String.Format(
+                CultureInfo.InvariantCulture,
+                "{0}: reason={1}; pass={2}; source={3}; generatedCode={4}; generatedXaml={5}; generatedXbf={6}; savedSourceTicks={7}; forced={8}",
+                XamlGivenPath,
+                GetOutOfDateReasonDescription(reason),
+                _srcMgr.IsPass1 ? 1 : 2,
+                DescribeFile(SourceXamlFullPath),
+                DescribeFile(_generatedFileFullPath),
+                DescribeFile(XamlOutputFilename),
+                _srcMgr.XbfGenerationIsDisabled ? "<disabled>" : DescribeFile(XbfOutputFilename),
+                XamlFileTimeAtLastCompile,
+                IsForcedOutOfDate);
+        }
+
+        private OutOfDateReason GetOutOfDateReason()
         {
             // Note #1) After a design time build generates the g.i file, from a dirty IDE buffer, the user
             // can abandon source changes in the IDE and xaml file last change date will revert to the
@@ -172,12 +207,12 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             //  need to build it.  Thus the special case.
             if (_outputFileIsZeroLength)
             {
-                return true;
+                return OutOfDateReason.GeneratedCodeMissingOrEmpty;
             }
 
             if (this.IsForcedOutOfDate)
             {
-                return true;
+                return OutOfDateReason.Forced;
             }
 
             if (_srcMgr.IsPass1)
@@ -186,7 +221,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 // issue described in Note #1 above.
                 if (XamlLastChangeTime.Ticks != XamlFileTimeAtLastCompile)
                 {
-                    return true;
+                    return OutOfDateReason.Pass1SourceTimestampChanged;
                 }
             }
             else
@@ -199,7 +234,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 // The Source XAML is later than the Edited XAML
                 if (XamlLastChangeTime > XamlOutputChangeTime)
                 {
-                    return true;
+                    return OutOfDateReason.SourceNewerThanGeneratedXaml;
                 }
 
                 // if we are generating XBF
@@ -207,15 +242,60 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 {
                     // The XBF is zero length or Older than the Source XAML
                     // Zero length XBF file implies a build failure.
-                    if (_xbfFileIsZeroLength || XamlLastChangeTime > XbfOutputChangeTime)
+                    if (_xbfFileIsZeroLength)
                     {
-                        return true;
+                        return OutOfDateReason.XbfMissingOrEmpty;
+                    }
+                    if (XamlLastChangeTime > XbfOutputChangeTime)
+                    {
+                        return OutOfDateReason.SourceNewerThanXbf;
                     }
                 }
             }
-            return false;
+            return OutOfDateReason.None;
+        }
+
+        private static string GetOutOfDateReasonDescription(OutOfDateReason reason)
+        {
+            switch (reason)
+            {
+                case OutOfDateReason.GeneratedCodeMissingOrEmpty:
+                    return "generated code is missing or empty";
+                case OutOfDateReason.Forced:
+                    return "the item was explicitly marked out of date";
+                case OutOfDateReason.Pass1SourceTimestampChanged:
+                    return "the source timestamp differs from the saved pass-1 timestamp";
+                case OutOfDateReason.SourceNewerThanGeneratedXaml:
+                    return "the source is newer than the generated XAML";
+                case OutOfDateReason.XbfMissingOrEmpty:
+                    return "the generated XBF is missing or empty";
+                case OutOfDateReason.SourceNewerThanXbf:
+                    return "the source is newer than the generated XBF";
+                default:
+                    return "none";
+            }
+        }
+
+        private static string DescribeFile(string path)
+        {
+            if (String.IsNullOrEmpty(path))
+            {
+                return "<not set>";
+            }
+
+            FileInfo file = new FileInfo(path);
+            if (!file.Exists)
+            {
+                return String.Format(CultureInfo.InvariantCulture, "'{0}' (missing)", path);
+            }
+
+            return String.Format(
+                CultureInfo.InvariantCulture,
+                "'{0}' (length={1}, lastWriteUtc={2:O})",
+                path,
+                file.Length,
+                file.LastWriteTimeUtc);
         }
 
     }
 }
-

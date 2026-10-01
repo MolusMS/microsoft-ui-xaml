@@ -36,23 +36,6 @@ namespace MUXControlsTestApp
                 testContext.Properties.Contains("SwitcherMode") &&
                 SwitcherComposition.IsTrue(
                     Convert.ToString(testContext.Properties["SwitcherMode"]));
-            bool switcherExpected =
-                testContext.Properties.Contains("SwitcherLafToken") ||
-                !string.IsNullOrEmpty(
-                    Environment.GetEnvironmentVariable(
-                        "SWITCHER_LAF_TOKEN",
-                        EnvironmentVariableTarget.Process));
-            if (switcherExpected)
-            {
-                Verify.IsTrue(
-                    switcherRequested,
-                    "MUXControls API tests must receive SwitcherMode when the pipeline provides its credential.");
-            }
-
-            string switcherLafToken = switcherRequested &&
-                testContext.Properties.Contains("SwitcherLafToken")
-                ? Convert.ToString(testContext.Properties["SwitcherLafToken"])
-                : null;
 
             if (testContext.Properties.Contains("WaitForDebugger") || testContext.Properties.Contains("WaitForAppDebugger"))
             {
@@ -81,7 +64,6 @@ namespace MUXControlsTestApp
                 {
                     Program.Run(
                         Array.Empty<string>(),
-                        switcherLafToken,
                         true);
                 }
                 catch (Exception exception)
@@ -104,7 +86,10 @@ namespace MUXControlsTestApp
                     "MUXControlsTestApp API startup failed before XAML activation.",
                     appStartupException);
             }
-            if (switcherRequested)
+            Verify.IsTrue(
+                switcherRequested == SwitcherComposition.IsRequested,
+                "SwitcherMode and the System composition request must agree.");
+            if (SwitcherComposition.IsRequested)
             {
                 Verify.IsTrue(
                     SwitcherComposition.IsConfigured,

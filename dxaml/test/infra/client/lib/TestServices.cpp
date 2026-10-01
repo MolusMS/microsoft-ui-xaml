@@ -85,32 +85,38 @@ HRESULT TestServicesStatics::RuntimeClassInitialize()
             SUCCEEDED(RuntimeParameters::TryGetValue(L"SwitcherMode", switcherModeParam)) &&
             (switcherModeParam.CompareNoCase(L"true") == 0 || switcherModeParam == L"1");
 
-        if (m_switcherMode)
-        {
-            WEX::Common::String switcherLafTokenParam;
-            LogThrow_IfFailed(RuntimeParameters::TryGetValue(
-                L"SwitcherLafToken",
-                switcherLafTokenParam));
-            const wchar_t* switcherLafToken = reinterpret_cast<const wchar_t*>(
-                switcherLafTokenParam.GetBuffer());
-            LogThrow_IfFailed(::WindowsCreateString(
-                switcherLafToken,
-                static_cast<UINT32>(wcslen(switcherLafToken)),
-                m_switcherLafToken.ReleaseAndGetAddressOf()));
-            LogThrow_If(::WindowsIsStringEmpty(m_switcherLafToken.Get()),
-                E_ACCESSDENIED);
-
-        }
-
         LogThrow_IfFailed(InitializeHost());
 
         if (hostingMode == Hosting::HostingMode::UAP)
         {
+            wchar_t certifiedHost[16]{};
+            SetLastError(ERROR_SUCCESS);
+            const DWORD certifiedHostLength = GetEnvironmentVariableW(
+                L"WINUI_SWITCHER_SYSTEM_COMPOSITION_CERTIFIED",
+                certifiedHost,
+                ARRAYSIZE(certifiedHost));
+            if (certifiedHostLength == 0)
+            {
+                const DWORD error = GetLastError();
+                LogThrow_If(
+                    error != ERROR_SUCCESS &&
+                    error != ERROR_ENVVAR_NOT_FOUND,
+                    HRESULT_FROM_WIN32(error));
+            }
+            LogThrow_If(
+                certifiedHostLength >= ARRAYSIZE(certifiedHost),
+                HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));
+
+            const bool hostCertified = certifiedHostLength != 0;
+            if (m_switcherMode != hostCertified)
+            {
+                WEX::Logging::Log::Comment(
+                    L"SwitcherMode and packaged UAP host certification did not agree.");
+            }
+            LogThrow_If(m_switcherMode != hostCertified, E_UNEXPECTED);
+
             if (m_switcherMode)
             {
-                // Both packaged entry points fail before UnitTestClient::Run if
-                // System selection or certification fails. Emit the marker here,
-                // after TAEF logging and host initialization are both available.
                 wchar_t executablePath[32768]{};
                 const DWORD executablePathLength = GetModuleFileNameW(
                     nullptr,
@@ -126,16 +132,6 @@ HRESULT TestServicesStatics::RuntimeClassInitialize()
 
                 const wchar_t* executableName = wcsrchr(executablePath, L'\\');
                 executableName = executableName == nullptr ? executablePath : executableName + 1;
-
-                wchar_t certifiedHost[16]{};
-                const DWORD certifiedHostLength = GetEnvironmentVariableW(
-                    L"WINUI_SWITCHER_SYSTEM_COMPOSITION_CERTIFIED",
-                    certifiedHost,
-                    ARRAYSIZE(certifiedHost));
-                LogThrow_If(certifiedHostLength == 0, E_ACCESSDENIED);
-                LogThrow_If(
-                    certifiedHostLength >= ARRAYSIZE(certifiedHost),
-                    HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));
 
                 const wchar_t* certificationMarker = nullptr;
                 if (_wcsicmp(executableName, L"taefhostapp.exe") == 0 &&
@@ -385,8 +381,7 @@ HRESULT TestServicesStatics::InitializeHostAndDpiAwarenessContextAndCore(boolean
                 L"Private.Infrastructure.Hosting.WPF.HostFactory",
                 dpiAwarenessContext,
                 initCore,
-                m_switcherMode,
-                m_switcherLafToken.Get());
+                m_switcherMode);
         }
         catch (const WEX::Common::Exception&)
         {
@@ -442,8 +437,7 @@ HRESULT TestServicesStatics::InitializeHostAndDpiAwarenessContextAndCore(boolean
             L"Private.Infrastructure.Hosting.WinForms.HostFactory",
             test_infra::Hosting::DpiAwarenessContext::DpiAwarenessContext_PerMonitorAwareV2,
             initCore,
-            m_switcherMode,
-            m_switcherLafToken.Get());
+            m_switcherMode);
         dispatcher = Win32Hosting::GetDispatcherQueueFromWin32XamlContentRoot(m_spWin32Host);
         uint64_t handle = 0;
         FAIL_FAST_IF_FAILED(m_spWin32Host->get_MainWindowHandle(&handle));

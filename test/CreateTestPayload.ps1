@@ -20,7 +20,7 @@ param(
 
     [switch]$SkipWinUIGallery,
 
-    [switch]$IncludeSwitcherIXMP,
+    [switch]$ValidateSwitcherCompositionHosts,
 
     [switch]$Clean,
 
@@ -72,7 +72,7 @@ function Print-Config
     Write-Host "Configuration:                     $Configuration"
     Write-Host "Skip Symbols:                      $SkipSymbols"
     Write-Host "Skip WinUIGallery:                 $SkipWinUIGallery"
-    Write-Host "Include Switcher IXMP:             $IncludeSwitcherIXMP"
+    Write-Host "Validate Switcher hosts:           $ValidateSwitcherCompositionHosts"
     Write-Host "Show Payload:                      $ShowPayload"
     Write-Host "Mode set (manually set by -mode):  $Mode"
     Write-Host "Modes not set [X] :                $modes"
@@ -214,111 +214,92 @@ if ($Mode -eq "DevTestSuite")
     Publish-Item "$binpath\test\private\Microsoft.WinUI.dll" "$outpath\Test\"
     Publish-Item "$binpath\test\private\Microsoft.WinUI.dll" "$outpath\"
 
-    if ($IncludeSwitcherIXMP)
+    if ($ValidateSwitcherCompositionHosts)
     {
-        $muxControlsTestAppExecutable =
-            "$outpath\Test\UnpackagedApps\MUXControlsTestApp\MUXControlsTestApp.exe"
-        if (-not (Test-Path -LiteralPath $muxControlsTestAppExecutable -PathType Leaf))
-        {
-            throw "The unpackaged MUXControlsTestApp executable was not found: $muxControlsTestAppExecutable"
-        }
-        & "$repoRoot\build\PipelineScripts\Set-LimitedAccessFeatureIdentityResource.ps1" `
-            -ExecutablePath $muxControlsTestAppExecutable `
-            -PackageFamilyName "XamlTAEFTests_8wekyb3d8bbwe" `
-            -VerifyOnly
-
         $ixmpAppx = "$binpath\Test\IXMPTestApp.appx"
-        $ixmpAssetDirectory = "$binpath\Switcher\IXMPTestApp"
-        $ixmpManifest = Join-Path $ixmpAssetDirectory "Package.Switcher.appxmanifest"
-        $ixmpPri = Join-Path $ixmpAssetDirectory "resources.pri"
-        foreach ($requiredFile in @($ixmpAppx, $ixmpManifest, $ixmpPri))
+        if (-not (Test-Path -LiteralPath $ixmpAppx -PathType Leaf))
         {
-            if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf))
+            throw "Switcher IXMP input was not found: $ixmpAppx"
+        }
+
+        $ixmpValidationLayout =
+            Join-Path $outpath "Test\Switcher\IXMPValidation"
+        try
+        {
+            if (Test-Path -LiteralPath $ixmpValidationLayout)
             {
-                throw "Switcher IXMP input was not found: $requiredFile"
+                Remove-Item -LiteralPath $ixmpValidationLayout -Recurse -Force
+            }
+            [void][Reflection.Assembly]::LoadWithPartialName(
+                "System.IO.Compression.FileSystem")
+            [IO.Compression.ZipFile]::ExtractToDirectory(
+                $ixmpAppx,
+                $ixmpValidationLayout)
+
+            $productDcompi = Join-Path $outpath "dcompi.dll"
+            $ixmpDcompiFiles = @(
+                Get-ChildItem `
+                    -LiteralPath $ixmpValidationLayout `
+                    -Filter "dcompi.dll" `
+                    -Recurse `
+                    -File)
+            if ($ixmpDcompiFiles.Count -ne 1)
+            {
+                throw (
+                    "Switcher IXMP must contain exactly one dcompi.dll; " +
+                    "found $($ixmpDcompiFiles.Count).")
+            }
+            $compositionHostDcompiFiles = @(
+                Join-Path `
+                    $outpath `
+                    "Test\UnpackagedApps\MUXControlsTestApp\dcompi.dll"
+                Join-Path `
+                    $outpath `
+                    "Test\UnpackagedApps\TabViewTearOutApp\dcompi.dll"
+                $ixmpDcompiFiles[0].FullName
+            )
+            foreach ($requiredFile in
+                @($productDcompi) + $compositionHostDcompiFiles)
+            {
+                if (-not (Test-Path `
+                        -LiteralPath $requiredFile `
+                        -PathType Leaf))
+                {
+                    throw (
+                        "Switcher composition runtime was not found: " +
+                        $requiredFile)
+                }
+            }
+
+            $productDcompiHash = (
+                Get-FileHash `
+                    -LiteralPath $productDcompi `
+                    -Algorithm SHA256).Hash
+            foreach ($hostDcompi in $compositionHostDcompiFiles)
+            {
+                $hostDcompiHash = (
+                    Get-FileHash `
+                        -LiteralPath $hostDcompi `
+                        -Algorithm SHA256).Hash
+                if (-not [string]::Equals(
+                        $hostDcompiHash,
+                        $productDcompiHash,
+                        [StringComparison]::OrdinalIgnoreCase))
+                {
+                    throw (
+                        "Switcher host dcompi.dll does not match the " +
+                        "product runtime: $hostDcompi")
+                }
             }
         }
-
-        $ixmpLayout = Join-Path $outpath "Test\Switcher\IXMPTestApp"
-        if (Test-Path -LiteralPath $ixmpLayout)
+        finally
         {
-            Remove-Item -LiteralPath $ixmpLayout -Recurse -Force
-        }
-        [void][Reflection.Assembly]::LoadWithPartialName("System.IO.Compression.FileSystem")
-        [IO.Compression.ZipFile]::ExtractToDirectory($ixmpAppx, $ixmpLayout)
-
-        $productDcompi = Join-Path $outpath "dcompi.dll"
-        $ixmpDcompiFiles = @(
-            Get-ChildItem -LiteralPath $ixmpLayout -Filter "dcompi.dll" -Recurse -File)
-        if ($ixmpDcompiFiles.Count -ne 1)
-        {
-            throw "Switcher IXMP must contain exactly one dcompi.dll; found $($ixmpDcompiFiles.Count)."
-        }
-        $compositionHostDcompiFiles = @(
-            Join-Path $outpath "Test\UnpackagedApps\MUXControlsTestApp\dcompi.dll"
-            Join-Path $outpath "Test\UnpackagedApps\TabViewTearOutApp\dcompi.dll"
-            $ixmpDcompiFiles[0].FullName
-        )
-        foreach ($requiredFile in @($productDcompi) + $compositionHostDcompiFiles)
-        {
-            if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf))
+            if (Test-Path -LiteralPath $ixmpValidationLayout)
             {
-                throw "Switcher composition runtime was not found: $requiredFile"
-            }
-        }
-        $productDcompiHash = (Get-FileHash -LiteralPath $productDcompi -Algorithm SHA256).Hash
-        foreach ($hostDcompi in $compositionHostDcompiFiles)
-        {
-            $hostDcompiHash = (Get-FileHash -LiteralPath $hostDcompi -Algorithm SHA256).Hash
-            if (-not [string]::Equals(
-                    $hostDcompiHash,
-                    $productDcompiHash,
-                    [StringComparison]::OrdinalIgnoreCase))
-            {
-                throw "Switcher host dcompi.dll does not match the product runtime: $hostDcompi"
-            }
-        }
-
-        foreach ($packageMetadataFile in @(
-                "[Content_Types].xml",
-                "AppxBlockMap.xml",
-                "AppxManifest.xml",
-                "AppxSignature.p7x"))
-        {
-            $metadataPath = Join-Path $ixmpLayout $packageMetadataFile
-            if (Test-Path -LiteralPath $metadataPath -PathType Leaf)
-            {
-                Remove-Item -LiteralPath $metadataPath -Force
-            }
-        }
-        $appxMetadataDirectory = Join-Path $ixmpLayout "AppxMetadata"
-        if (Test-Path -LiteralPath $appxMetadataDirectory -PathType Container)
-        {
-            Remove-Item -LiteralPath $appxMetadataDirectory -Recurse -Force
-        }
-
-        Copy-Item -LiteralPath $ixmpManifest -Destination $ixmpLayout -Force
-        Copy-Item -LiteralPath $ixmpPri -Destination $ixmpLayout -Force
-        $ixmpEntrypoint = Join-Path $ixmpLayout "entrypoint\IXMPTestApp.exe"
-        $ixmpLooseTestModule = Join-Path $ixmpLayout "IXMPTestApp.Tests.exe"
-        if (-not (Test-Path -LiteralPath $ixmpEntrypoint -PathType Leaf))
-        {
-            throw "Switcher IXMP test module was not found: $ixmpEntrypoint"
-        }
-
-        # TAEF uses the test module directory as the loose package root.
-        Copy-Item -LiteralPath $ixmpEntrypoint -Destination $ixmpLooseTestModule -Force
-        foreach ($requiredLayoutFile in @(
-                "IXMPTestApp.exe",
-                "entrypoint\IXMPTestApp.exe",
-                "IXMPTestApp.Tests.exe",
-                "Package.Switcher.appxmanifest",
-                "resources.pri"))
-        {
-            $layoutPath = Join-Path $ixmpLayout $requiredLayoutFile
-            if (-not (Test-Path -LiteralPath $layoutPath -PathType Leaf))
-            {
-                throw "Switcher IXMP layout is incomplete: $layoutPath"
+                Remove-Item `
+                    -LiteralPath $ixmpValidationLayout `
+                    -Recurse `
+                    -Force
             }
         }
     }

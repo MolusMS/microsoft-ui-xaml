@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 
@@ -18,51 +19,42 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
     internal sealed class SwitcherLaunchRequest : IDisposable
     {
         private const string RequestDirectoryName = ".winui-switcher";
-        private const string TokenFileName = "system-backend";
         private const string RequestIdFileName = "request-id";
-        private const string CertificationFileName = "system-backend.certified";
-        private const string FailureFileName = "system-backend.error";
-        private const int MaximumRequestValueSize = 64 * 1024;
+        private const string CertificationFileName = "certified-response";
+        private const string FailureFileName = "failure-response";
+        private const int MaximumResponseLength = 4096;
 
         private static readonly object CertifiedProcessesLock = new object();
-        private static readonly HashSet<int> CertifiedProcesses = new HashSet<int>();
+        private static readonly HashSet<int> CertifiedProcesses =
+            new HashSet<int>();
 
+        private readonly string requestDirectory;
         private readonly string requestId;
+        private readonly string requestIdPath;
         private readonly string certificationPath;
         private readonly string failurePath;
 
-        private SwitcherLaunchRequest(string requestDirectory, string requestId)
+        private SwitcherLaunchRequest(
+            string requestDirectory,
+            string requestId)
         {
+            this.requestDirectory = requestDirectory;
             this.requestId = requestId;
-            this.certificationPath = Path.Combine(
-                requestDirectory,
-                CertificationFileName);
-            this.failurePath = Path.Combine(
-                requestDirectory,
-                FailureFileName);
+            requestIdPath =
+                Path.Combine(requestDirectory, RequestIdFileName);
+            certificationPath =
+                Path.Combine(requestDirectory, CertificationFileName);
+            failurePath =
+                Path.Combine(requestDirectory, FailureFileName);
         }
 
         internal static bool IsEnabled(TestContext testContext)
         {
-            bool switcherRequested = testContext != null &&
+            return testContext != null &&
                 testContext.Properties.Contains("SwitcherMode") &&
                 IsTrue(Convert.ToString(
                     testContext.Properties["SwitcherMode"],
                     CultureInfo.InvariantCulture));
-            bool switcherExpected =
-                (testContext != null &&
-                    testContext.Properties.Contains("SwitcherLafToken")) ||
-                !string.IsNullOrEmpty(
-                    Environment.GetEnvironmentVariable(
-                        "SWITCHER_LAF_TOKEN",
-                        EnvironmentVariableTarget.Process));
-            if (switcherExpected && !switcherRequested)
-            {
-                throw new InvalidOperationException(
-                    "The interaction test process did not receive SwitcherMode.");
-            }
-
-            return switcherRequested;
         }
 
         internal static SwitcherLaunchRequest Prepare(
@@ -110,34 +102,10 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
                     RequestDirectoryName);
             }
 
-            string tokenPath = Path.Combine(requestDirectory, TokenFileName);
-            if (!File.Exists(tokenPath))
-            {
-                throw new FileNotFoundException(
-                    "The Switcher launch request token was not provisioned.",
-                    tokenPath);
-            }
-
-            long tokenLength = new FileInfo(tokenPath).Length;
-            if (tokenLength <= 0 || tokenLength > MaximumRequestValueSize)
-            {
-                throw new InvalidDataException(
-                    "The Switcher launch request token has an invalid size.");
-            }
-
-            string requestId = ReadBoundedText(
-                Path.Combine(requestDirectory, RequestIdFileName));
-            Guid parsedRequestId;
-            if (!Guid.TryParse(requestId, out parsedRequestId))
-            {
-                throw new InvalidDataException(
-                    "The Switcher launch request identifier is invalid.");
-            }
-
             var request = new SwitcherLaunchRequest(
                 requestDirectory,
-                parsedRequestId.ToString("D"));
-            request.DeleteResponse();
+                Guid.NewGuid().ToString("D"));
+            request.Create();
             return request;
         }
 
@@ -159,13 +127,7 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
                 Thread.Sleep(100);
             }
 
-            if (File.Exists(failurePath))
-            {
-                throw new InvalidOperationException(
-                    processName +
-                    " failed before System composition certification: " +
-                    ReadBoundedText(failurePath));
-            }
+            ThrowIfFailed(processName);
             if (!File.Exists(certificationPath))
             {
                 throw new InvalidOperationException(
@@ -173,19 +135,24 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
                     " did not certify System composition before creating its window.");
             }
 
-            string[] certification = File.ReadAllLines(
-                certificationPath,
-                new UTF8Encoding(false, true));
-            if (certification.Length != 2 ||
+            Dictionary<string, string> certification =
+                ReadResponse(certificationPath);
+            string responseRequestId;
+            string responseProcessId;
+            int certifiedProcessId;
+            if (!certification.TryGetValue(
+                    RequestIdFileName,
+                    out responseRequestId) ||
                 !string.Equals(
-                    certification[0],
+                    responseRequestId,
                     requestId,
                     StringComparison.OrdinalIgnoreCase) ||
+                !certification.TryGetValue("pid", out responseProcessId) ||
                 !int.TryParse(
-                    certification[1],
+                    responseProcessId,
                     NumberStyles.None,
                     CultureInfo.InvariantCulture,
-                    out int certifiedProcessId) ||
+                    out certifiedProcessId) ||
                 certifiedProcessId != processId)
             {
                 throw new InvalidDataException(
@@ -217,7 +184,17 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
 
         public void Dispose()
         {
-            DeleteResponse();
+            DeleteIfPresent(certificationPath);
+            DeleteIfPresent(certificationPath + ".tmp");
+            DeleteIfPresent(failurePath);
+            DeleteIfPresent(failurePath + ".tmp");
+            DeleteIfPresent(requestIdPath);
+
+            if (Directory.Exists(requestDirectory) &&
+                !Directory.EnumerateFileSystemEntries(requestDirectory).Any())
+            {
+                Directory.Delete(requestDirectory);
+            }
         }
 
         private static string AssemblyLocation
@@ -228,10 +205,48 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
             }
         }
 
+        private void Create()
+        {
+            Directory.CreateDirectory(requestDirectory);
+            DeleteIfPresent(certificationPath);
+            DeleteIfPresent(certificationPath + ".tmp");
+            DeleteIfPresent(failurePath);
+            DeleteIfPresent(failurePath + ".tmp");
+            File.WriteAllText(
+                requestIdPath,
+                requestId,
+                new UTF8Encoding(false));
+        }
+
         private static bool IsTrue(string value)
         {
-            return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+            return string.Equals(
+                    value,
+                    "true",
+                    StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(value, "1", StringComparison.Ordinal);
+        }
+
+        private static Dictionary<string, string> ReadResponse(string path)
+        {
+            var response = new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (string line in
+                ReadBoundedText(path).Split(
+                    new[] { '\r', '\n' },
+                    StringSplitOptions.RemoveEmptyEntries))
+            {
+                int separator = line.IndexOf('=');
+                if (separator <= 0)
+                {
+                    continue;
+                }
+
+                response[line.Substring(0, separator)] =
+                    line.Substring(separator + 1);
+            }
+
+            return response;
         }
 
         private static string ReadBoundedText(string path)
@@ -246,22 +261,15 @@ namespace Microsoft.UI.Xaml.Tests.MUXControls.InteractionTests.Infra
                 new UTF8Encoding(false, true),
                 false))
             {
-                if (stream.Length <= 0 || stream.Length > MaximumRequestValueSize)
+                if (stream.Length <= 0 ||
+                    stream.Length > MaximumResponseLength)
                 {
                     throw new InvalidDataException(
-                        "A Switcher launch request value has an invalid size.");
+                        "A Switcher launch response has an invalid size.");
                 }
 
                 return reader.ReadToEnd();
             }
-        }
-
-        private void DeleteResponse()
-        {
-            DeleteIfPresent(certificationPath);
-            DeleteIfPresent(certificationPath + ".tmp");
-            DeleteIfPresent(failurePath);
-            DeleteIfPresent(failurePath + ".tmp");
         }
 
         private static void DeleteIfPresent(string path)

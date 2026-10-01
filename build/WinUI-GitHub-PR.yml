@@ -39,6 +39,14 @@ parameters:
   displayName: "Reuse output from build ID (manual runs only)"
   type: string
   default: ''
+- name: switcherOnly
+  displayName: "Build x86chk and run only Composition Switcher validation"
+  type: boolean
+  default: false
+- name: winUIDetailsPrBuildId
+  displayName: "WinUIDetails PR build supplying temporary MockDComp (manual runs only)"
+  type: string
+  default: ''
 
 variables:
 - template: AzurePipelinesTemplates\WindowsAppSDK-Versions.yml@WindowsAppSDKVersionConfig
@@ -154,15 +162,19 @@ extends:
     - ${{ if eq(parameters.runFullValidation, true) }}:
       - template: build\AzurePipelinesTemplates\WinUI-BuildWinUI-Stage.yml@WinUIInternal
         parameters:
-          pipelineKind: GitHubPR
-          buildScenarioApps: true
+          ${{ if eq(parameters.switcherOnly, true) }}:
+            pipelineKind: QuickPR
+            buildScenarioApps: false
+          ${{ else }}:
+            pipelineKind: GitHubPR
+            buildScenarioApps: true
           MUXFinalRelease: ${{ parameters.MUXFinalRelease }}
           runStaticAnalysis: ${{ parameters.runStaticAnalysis }}
           pgoBuildModeMSBuildArg: '/p:PGOBuildMode=Off'
           buildProductOnly: false
           dependsOn: ValidateGitHubPrContext
 
-    - ${{ if and(eq(parameters.runFullValidation, true), eq(parameters.MUXFinalRelease, false)) }}:
+    - ${{ if and(eq(parameters.runFullValidation, true), eq(parameters.MUXFinalRelease, false), eq(parameters.switcherOnly, false)) }}:
       - template: build\AzurePipelinesTemplates\WinUI-BuildWinUI-Stage.yml@WinUIInternal
         parameters:
           stageName: Build_MUXFinalRelease
@@ -174,25 +186,25 @@ extends:
           buildProductOnly: true
           dependsOn: ValidateGitHubPrContext
 
-    - ${{ if eq(parameters.runFullValidation, true) }}:
+    - ${{ if and(eq(parameters.runFullValidation, true), eq(parameters.switcherOnly, false)) }}:
       - template: build\AzurePipelinesTemplates\WinUI-RunTests-Stage.yml@WinUIInternal
         parameters:
           pipelineKind: PR
           # Test results are published but do not gate the pipeline yet.
           failOnTestFailure: false
 
-    # Composition switcher tests use the internal masked LAF token on a ge_current agent.
-    # The stage template lives in THIS repo (self, not @WinUIInternal) because it is part of
-    # the switcher work. Token material is supplied only through secret task environments.
+    # Run the dedicated Composition Switcher validation from this repository.
     - ${{ if eq(parameters.runFullValidation, true) }}:
       - template: AzurePipelinesTemplates\WinUI-RunSwitcherTests-Stage.yml
+        parameters:
+          winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
 
-    - ${{ if eq(parameters.runFullValidation, true) }}:
+    - ${{ if and(eq(parameters.runFullValidation, true), eq(parameters.switcherOnly, false)) }}:
       - template: build\AzurePipelinesTemplates\WinUI-RunStaticTests-Stage.yml@WinUIInternal
         parameters:
           MUXFinalRelease: ${{ parameters.MUXFinalRelease }}
 
-    - ${{ if eq(parameters.runFullValidation, true) }}:
+    - ${{ if and(eq(parameters.runFullValidation, true), eq(parameters.switcherOnly, false)) }}:
       - template: build\AzurePipelinesTemplates\WinUI-RunScenarioTests-Stage.yml@WinUIInternal
         parameters:
           pipelineKind: GitHubPR

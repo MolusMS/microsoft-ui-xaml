@@ -766,8 +766,14 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         //
         public bool VerifyWorkDone()
         {
-            if (this.IsPass1 == true)
-                return true;
+            return GetOutOfDateXamlItems().Count == 0;
+        }
+
+        private List<TaskItemFilename> GetOutOfDateXamlItems()
+        {
+            if (this.IsPass1 == true ||
+                CodeGenerationControlFlags.HasFlag(CodeGenCtrlFlags.NoTypeInfoCodeGen))
+                return new List<TaskItemFilename>();
 
             // Get the latest timestamp of the generated file
             foreach (TaskItemFilename tif in SourceFileManager.ProjectXamlTaskItems)
@@ -775,8 +781,9 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 tif.Refresh(SaveState);
             }
 
-            // We should not need to do any work
-            return DidXAMLFilesChange() == false;
+            return SourceFileManager.ProjectXamlTaskItems
+                .Where(tif => tif.OutOfDate())
+                .ToList();
         }
 
         private SourceFileManager SourceFileManager
@@ -1107,8 +1114,11 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 RemoveLmrAssemblyResolveHandler();
                 if (shouldVerifyWorkDone == true)
                 {
-                    bool isDone = VerifyWorkDone();
-                    Debug.Assert(isDone, "VerifyWorkDone checked failed");
+                    List<TaskItemFilename> outOfDateXamlItems = GetOutOfDateXamlItems();
+                    if (outOfDateXamlItems.Count != 0)
+                    {
+                        LogVerifyWorkDoneWarning(outOfDateXamlItems);
+                    }
                 }
                 Core.InstanceCacheManager.ClearCache();
 
@@ -3001,6 +3011,39 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         private void LogWarning(XamlCompileWarning warning)
         {
             LogWarning(warning, warning.FileName);
+        }
+
+        private void LogVerifyWorkDoneWarning(IList<TaskItemFilename> outOfDateXamlItems)
+        {
+            const int maximumDetails = 20;
+            IEnumerable<string> details = outOfDateXamlItems
+                .Take(maximumDetails)
+                .Select(tif => "  - " + tif.GetOutOfDateDiagnostic());
+            string detailText = String.Join(Environment.NewLine, details);
+            if (outOfDateXamlItems.Count > maximumDetails)
+            {
+                detailText += String.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}  - {1} additional item(s) omitted.",
+                    Environment.NewLine,
+                    outOfDateXamlItems.Count - maximumDetails);
+            }
+
+            string message = ResourceUtilities.FormatString(
+                XamlCompilerResources.XamlCompiler_VerifyWorkDoneFailed,
+                outOfDateXamlItems.Count,
+                Environment.NewLine,
+                detailText);
+            Log.LogWarning(
+                "XamlCompiler",
+                ErrorCode.WMC1511.AsErrorCode(),
+                null,
+                ProjectPath,
+                0,
+                0,
+                0,
+                0,
+                message);
         }
 
         private void LogError(XamlCompileError error)

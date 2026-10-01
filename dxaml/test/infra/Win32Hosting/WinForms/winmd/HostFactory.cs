@@ -18,9 +18,9 @@ namespace Private.Infrastructure.Hosting.WinForms
             AppDomainExceptionHandler.SetExceptionHandler(handler);
         }
 
-        public void ConfigureCompositionSwitcher(string lafToken)
+        public void ConfigureCompositionSwitcher(string reserved)
         {
-            CompositionSwitcher.ConfigureAndCertify(lafToken);
+            CompositionSwitcher.ConfigureAndCertify();
         }
 
         private async Task<object> CreateInternal()

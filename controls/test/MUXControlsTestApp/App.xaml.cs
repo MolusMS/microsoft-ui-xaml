@@ -44,13 +44,11 @@ namespace MUXControlsTestApp
         {
             Run(
                 args,
-                null,
                 false);
         }
 
         internal static void Run(
             string[] args,
-            string switcherLafToken,
             bool enableXamlOptionalChanges)
         {
             // In 19H1 and above, WinRT activation is set up for us.  Below 19H1, we need to manually set up detours.
@@ -61,14 +59,7 @@ namespace MUXControlsTestApp
             }
 
             WinRT.ComWrappersSupport.InitializeComWrappers();
-            if (!string.IsNullOrEmpty(switcherLafToken))
-            {
-                SwitcherComposition.Configure(switcherLafToken);
-            }
-            else
-            {
-                SwitcherComposition.ConfigureFromLaunchRequest();
-            }
+            SwitcherComposition.ConfigureFromRegistryRequest();
 
             if (enableXamlOptionalChanges)
             {

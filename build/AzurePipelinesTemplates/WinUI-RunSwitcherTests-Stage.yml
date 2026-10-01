@@ -1,15 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 #
-# Runs the composition switcher tests on a ge_current lab VM, using the masked LAF token to
-# engage the switcher in the packaged host before XAML is initialized.
-# Self-contained (modeled on WinUI-PGO-Train-Stage.yml, which uses the same ge_current pool) so
-# it does not touch the shared per-OS RunTests matrix.
-#
-# This stage runs Harini's focused composition canary, certifies the native UAP
-# and managed WPF host paths, and then partitions Harini's supported
-# master-backed selection across its declared UAP/WPF hosting modes. The later
-# 20-slice DevTestSuite expansion remains excluded.
+# Runs Composition Switcher validation in a dedicated pipeline stage.
+
 parameters:
   - name: taefQuery
     type: string
@@ -19,6 +12,12 @@ parameters:
   - name: expectedTestCount
     type: number
     default: 14
+  - name: winUIDetailsPrBuildId
+    type: string
+    default: ''
+  - name: expectedMockDCompSha256
+    type: string
+    default: '18D7D8B72264D5CF43966F559169DBD297333C1724ED049F4589ABB3244C06BF'
 
 stages:
 - stage: RunSwitcherTests
@@ -34,9 +33,6 @@ stages:
       demands: ImageOverride -equals ge_current-vhdx_enterprise
     timeoutInMinutes: 180
     variables:
-      # This authorized variable group carries CompositionSwitcherLafToken; only the variable
-      # name is public, while the value remains in Azure Pipelines Library.
-      - group: WinUI-InternalFeed
       - name: buildPlatform
         value: 'x86'
       - name: normalizedConfiguration
@@ -69,18 +65,6 @@ stages:
         reg query "HKLM\Software\Microsoft\Windows NT\CurrentVersion"
       displayName: Display OS version info
 
-    - task: PowerShell@2
-      displayName: Register switcher LAF token as secret
-      inputs:
-        targetType: inline
-        script: |
-          if ([string]::IsNullOrEmpty($env:SWITCHER_LAF_TOKEN)) {
-            throw 'The composition switcher LAF token is unavailable.'
-          }
-          Write-Host "##vso[task.setsecret]$env:SWITCHER_LAF_TOKEN"
-      env:
-        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
-
     - task: NuGetAuthenticate@1
 
     - task: NuGetCommand@2
@@ -112,7 +96,13 @@ stages:
       inputs:
         targetType: filePath
         filePath: test\CreateTestPayload.ps1
-        arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols
+        arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols -ValidateSwitcherCompositionHosts
+
+    - template: WinUI-OverlayWinUIDetailsMockDComp-Steps.yml
+      parameters:
+        winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
+        expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
+        destinationPath: '$(testPayloadDirInner)\Test\MockDComp.dll'
 
     # Work-item generation runs TAEF discovery, so the UAP dependencies must be installed before
     # generation. RunHelixWorkItem.ps1 calls this again, but the payload marker makes that a no-op.
@@ -127,12 +117,17 @@ stages:
       env:
         HELIX_CORRELATION_PAYLOAD: $(testPayloadDirInner)
 
-    # Use the same generated-work-item path as the regular DevTestSuite. The tests declare
-    # RunAs=UAP but no Hosting:Mode metadata, so HostingMode is passed as a runtime parameter
-    # rather than added to the TAEF selection query. The launch request makes the packaged host
-    # select System before Application::Start; ClassSetup reauthorizes the token and the tests
-    # certify the committed backend. The token placeholder remains unexpanded in the work item and is
-    # expanded only by cmd.exe on the execution machine after Azure Pipelines masks the value.
+    - task: PowerShell@2
+      displayName: Run private test pre-execution setup
+      inputs:
+        targetType: filePath
+        filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
+        arguments: >-
+          -EntryPoint TestPreExecutionSetup
+          -MockDCompPath "$(testPayloadDirInner)\Test\MockDComp.dll"
+          -Platform $(buildPlatform)
+
+    # Generate the focused work item through the existing DevTestSuite path.
     - template: WinUI-CreateHelixProjFile-Steps.yml
       parameters:
         testFilePathPattern: 'Test\Microsoft.UI.Xaml.Tests.External.Foundation.dll'
@@ -140,28 +135,11 @@ stages:
         outputProjFileName: 'RunTestsInHelix-SwitcherTests.proj'
         testSuite: DevTestSuite
         taefQuery: "${{ parameters.taefQuery }}"
-        taefExtraParameters: '/p:HostingMode=UAP /p:SwitcherLafToken=%SWITCHER_LAF_TOKEN% /reportLoadingIssue'
-        # SwitcherTests is ignored in generic DevTestSuite runs because it requires this
-        # secret-backed packaged launch path. This name-filtered work item opts it back in.
+        taefExtraParameters: '/p:HostingMode=UAP /p:SwitcherMode=true /reportLoadingIssue'
+        # This focused work item intentionally includes the named ignored tests.
         runIgnoredTests: 1
-        # The packaged entry point engages the switcher before ClassSetup. Do not also
-        # pass SwitcherMode=true: ModuleSetup runs in an elevated unpackaged fixture process where
-        # the AppX CompositionEngine registration is intentionally unavailable.
-        switcherMode: 0
         targetOsVersion: '26200'
         taefExePath: $(testPayloadDirInner)\te.exe
-
-    - task: powershell@2
-      displayName: Create packaged switcher launch request
-      inputs:
-        targetType: filePath
-        filePath: build\PipelineScripts\Set-SwitcherLaunchRequest.ps1
-        arguments: >-
-          -LaunchRequestDirectory "$(testPayloadDirInner)\Test\.winui-switcher"
-          -NativeManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.native.current.xml"
-          -ManagedManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.managed.current.xml"
-      env:
-        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
     - task: powershell@2
       displayName: Run Switcher Tests
@@ -172,17 +150,24 @@ stages:
         arguments: -WorkItemProjFileNameFilter RunTestsInHelix-SwitcherTests.proj -WorkItemProjDir $(helixWorkItemsDir) -TestPayloadDir $(testPayloadDirInner) -UploadRoot $(ob_outputDirectory) -JobPositionInPhase 1 -TotalJobsInPhase 1 -RerunPassesRequiredToAvoidFailure 1
         errorActionPreference: stop
         workingDirectory: $(switcherResultsDir)
-      env:
-        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
     - task: PowerShell@2
       condition: always()
-      displayName: Remove packaged switcher launch request
+      displayName: Run private test post-execution cleanup
+      inputs:
+        targetType: filePath
+        filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
+        arguments: >-
+          -EntryPoint TestPostExecutionCleanup
+          -MockDCompPath "$(testPayloadDirInner)\Test\MockDComp.dll"
+          -Platform $(buildPlatform)
+
+    - task: PowerShell@2
+      condition: always()
+      displayName: Remove temporary switcher runner files
       inputs:
         targetType: inline
         script: |
-          & "$(Build.SourcesDirectory)\build\PipelineScripts\Remove-SwitcherLaunchRequests.ps1" `
-            -TestDirectory "$(testPayloadDirInner)\Test"
           foreach ($temporaryFile in @(
               (Join-Path "$(switcherResultsDir)" 'args.txt'),
               (Join-Path "$(switcherResultsDir)" 'temp-runworkitem.cmd'),
@@ -191,18 +176,6 @@ stages:
               Remove-Item -LiteralPath $temporaryFile -Force
             }
           }
-
-    - task: PowerShell@2
-      condition: always()
-      displayName: Sanitize switcher diagnostic artifacts
-      inputs:
-        targetType: filePath
-        filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
-        arguments: >-
-          -ArtifactRoot "$(ob_outputDirectory)"
-          -AdditionalArtifactPath "$(switcherResultsDir)\$(switcherResultsFile)"
-      env:
-        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
 
     - task: powershell@2
       condition: always()
@@ -285,7 +258,7 @@ stages:
           }
 
     - task: PublishTestResults@2
-      condition: and(always(), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+      condition: always()
       inputs:
         testResultsFormat: xUnit
         testResultsFiles: $(switcherResultsFile)
@@ -316,18 +289,8 @@ stages:
             Write-Host "No XamlTAEFOutput folder at $src - nothing to collect (test produced no trees)."
           }
 
-    - task: PowerShell@2
-      condition: always()
-      displayName: Sanitize collected switcher baselines
-      inputs:
-        targetType: filePath
-        filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
-        arguments: -ArtifactRoot "$(ob_outputDirectory)\SwitcherBaselining"
-      env:
-        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
-
     - task: PublishPipelineArtifact@1
-      condition: and(always(), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+      condition: always()
       displayName: Publish switcher output for baselining
       inputs:
         targetPath: $(ob_outputDirectory)\SwitcherBaselining
@@ -345,6 +308,8 @@ stages:
       runIgnoredTests: true
       preflightTestSelector: 'SwitcherTests*VerifyLiftedSystemCompositionPath'
       preflightLogFileName: switcher-preflight-uap-native.log
+      winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
+      expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
 
   - template: WinUI-RunSwitcherHostPreflight-Job.yml
     parameters:
@@ -357,3 +322,5 @@ stages:
       certificationMarker: 'SwitcherMode: Private.Infrastructure.Hosting.WPF.HostFactory selected and certified System composition.'
       preflightTestSelector: 'WPFTests*VerifyPLMHandlerNoException'
       preflightLogFileName: switcher-preflight-wpf.log
+      winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
+      expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}

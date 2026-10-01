@@ -36,7 +36,7 @@ namespace IXMPTestApp
         /// </summary>
         public App()
         {
-            SwitcherComposition.ConfigureFromPackagedLaunchRequest();
+            SwitcherComposition.ConfigureFromRegistryRequest();
             this.InitializeComponent();
         }
 

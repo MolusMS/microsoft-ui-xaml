@@ -3,130 +3,56 @@
 
 #include "pch.h"
 
-#include <string>
-#include <vector>
-#include <wil\resource.h>
-
 using namespace TaefHostApp;
 
 namespace
 {
-    constexpr wchar_t CompositionEngineFeatureId[] =
-        L"com.microsoft.windows.composition.engine";
-    constexpr wchar_t CompositionEngineAttestation[] =
-        L"8wekyb3d8bbwe has registered their use of com.microsoft.windows.composition.engine "
-        L"with Microsoft and agrees to the terms of use.";
-    constexpr wchar_t SwitcherLaunchRequestRelativePath[] =
-        L".winui-switcher\\system-backend";
+    constexpr wchar_t TestInfrastructureRegistryPath[] =
+        L"Software\\Microsoft\\WinUITestInfrastructure";
+    constexpr wchar_t UseSystemCompositionEngineValueName[] =
+        L"UseSystemCompositionEngine";
+#if defined(_WIN64)
+    constexpr DWORD TestInfrastructureRegistryView =
+        RRF_SUBKEY_WOW6464KEY;
+#else
+    constexpr DWORD TestInfrastructureRegistryView =
+        RRF_SUBKEY_WOW6432KEY;
+#endif
     constexpr wchar_t SwitcherCertificationEnvironmentVariable[] =
         L"WINUI_SWITCHER_SYSTEM_COMPOSITION_CERTIFIED";
-    constexpr LONGLONG MaximumSwitcherLafTokenSize = 64 * 1024;
     bool systemCompositionConfigured = false;
     bool systemCompositionCertified = false;
 
-    Platform::String^ ReadSwitcherLafToken()
+    bool IsSystemCompositionRequested()
     {
-        std::vector<wchar_t> executablePath(32768);
-        const DWORD executablePathLength = GetModuleFileNameW(
+        DWORD requested = 0;
+        DWORD requestedSize = sizeof(requested);
+        const LSTATUS status = RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            TestInfrastructureRegistryPath,
+            UseSystemCompositionEngineValueName,
+            RRF_RT_REG_DWORD | TestInfrastructureRegistryView,
             nullptr,
-            executablePath.data(),
-            static_cast<DWORD>(executablePath.size()));
-        if (executablePathLength == 0)
+            &requested,
+            &requestedSize);
+        if (status != ERROR_SUCCESS)
         {
-            throw Platform::Exception::CreateException(
-                HRESULT_FROM_WIN32(GetLastError()));
-        }
-        if (static_cast<size_t>(executablePathLength) >= executablePath.size())
-        {
-            throw Platform::Exception::CreateException(
-                HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));
-        }
-
-        std::wstring requestPath(executablePath.data(), executablePathLength);
-        const size_t fileNameSeparator = requestPath.find_last_of(L'\\');
-        if (fileNameSeparator == std::wstring::npos)
-        {
-            throw Platform::Exception::CreateException(E_UNEXPECTED);
-        }
-        requestPath.resize(fileNameSeparator + 1);
-        requestPath.append(SwitcherLaunchRequestRelativePath);
-
-        HANDLE requestFile = CreateFileW(
-            requestPath.c_str(),
-            GENERIC_READ,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            nullptr,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr);
-        if (requestFile == INVALID_HANDLE_VALUE)
-        {
-            const DWORD error = GetLastError();
-            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+            if (status == ERROR_FILE_NOT_FOUND ||
+                status == ERROR_PATH_NOT_FOUND)
             {
-                return nullptr;
+                return false;
             }
-            throw Platform::Exception::CreateException(HRESULT_FROM_WIN32(error));
-        }
-        wil::unique_hfile requestFileHandle(requestFile);
 
-        LARGE_INTEGER tokenSize{};
-        if (!GetFileSizeEx(requestFileHandle.get(), &tokenSize))
+            throw Platform::Exception::CreateException(
+                HRESULT_FROM_WIN32(status));
+        }
+        if (requested != 1)
         {
             throw Platform::Exception::CreateException(
-                HRESULT_FROM_WIN32(GetLastError()));
-        }
-        if (tokenSize.QuadPart <= 0 ||
-            tokenSize.QuadPart > MaximumSwitcherLafTokenSize)
-        {
-            throw Platform::Exception::CreateException(E_ACCESSDENIED);
+                HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
         }
 
-        std::vector<char> tokenBytes(static_cast<size_t>(tokenSize.QuadPart));
-        DWORD bytesRead = 0;
-        if (!ReadFile(
-                requestFileHandle.get(),
-                tokenBytes.data(),
-                static_cast<DWORD>(tokenBytes.size()),
-                &bytesRead,
-                nullptr))
-        {
-            throw Platform::Exception::CreateException(
-                HRESULT_FROM_WIN32(GetLastError()));
-        }
-        if (bytesRead != static_cast<DWORD>(tokenBytes.size()))
-        {
-            throw Platform::Exception::CreateException(E_UNEXPECTED);
-        }
-
-        const int tokenCharacterCount = MultiByteToWideChar(
-            CP_UTF8,
-            MB_ERR_INVALID_CHARS,
-            tokenBytes.data(),
-            static_cast<int>(tokenBytes.size()),
-            nullptr,
-            0);
-        if (tokenCharacterCount <= 0)
-        {
-            throw Platform::Exception::CreateException(
-                HRESULT_FROM_WIN32(GetLastError()));
-        }
-
-        std::vector<wchar_t> tokenCharacters(
-            static_cast<size_t>(tokenCharacterCount) + 1);
-        if (MultiByteToWideChar(
-                CP_UTF8,
-                MB_ERR_INVALID_CHARS,
-                tokenBytes.data(),
-                static_cast<int>(tokenBytes.size()),
-                tokenCharacters.data(),
-                tokenCharacterCount) != tokenCharacterCount)
-        {
-            throw Platform::Exception::CreateException(
-                HRESULT_FROM_WIN32(GetLastError()));
-        }
-        tokenCharacters[tokenCharacterCount] = L'\0';
-        return ref new Platform::String(tokenCharacters.data());
+        return true;
     }
 
     bool SelectSystemCompositionIfRequested()
@@ -136,20 +62,9 @@ namespace
             return true;
         }
 
-        auto lafToken = ReadSwitcherLafToken();
-        if (lafToken == nullptr)
+        if (!IsSystemCompositionRequested())
         {
             return false;
-        }
-
-        auto unlockResult = Windows::ApplicationModel::LimitedAccessFeatures::TryUnlockFeature(
-            ref new Platform::String(CompositionEngineFeatureId),
-            lafToken,
-            ref new Platform::String(CompositionEngineAttestation));
-        if (unlockResult->Status !=
-            Windows::ApplicationModel::LimitedAccessFeatureStatus::Available)
-        {
-            throw Platform::Exception::CreateException(E_ACCESSDENIED);
         }
 
         if (!Microsoft::UI::Composition::CompositionEngine::TrySetProcessEngine(
@@ -173,7 +88,10 @@ namespace
             throw Platform::Exception::CreateException(E_UNEXPECTED);
         }
 
-        auto compositor = ref new Microsoft::UI::Composition::Compositor();
+        auto probeElement = ref new Microsoft::UI::Xaml::Controls::Grid();
+        auto compositor =
+            Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::
+                GetElementVisual(probeElement)->Compositor;
         Platform::Object^ systemCompositor =
             Microsoft::UI::Composition::CompositionEngine::GetForSystemEngine(
                 compositor);
@@ -207,12 +125,8 @@ void App::OnLaunched(Microsoft::UI::Xaml::LaunchActivatedEventArgs^ e)
         }
     }
 
-    // Match the packaged-host ordering used by the original Switcher probe:
-    // select before window activation, then certify on the initialized XAML UI thread.
-    const bool systemCompositionSelected =
-        SelectSystemCompositionIfRequested();
     Microsoft::UI::Xaml::Window::Current->Activate();
-    if (systemCompositionSelected)
+    if (systemCompositionConfigured)
     {
         CertifySystemComposition();
         if (!SetEnvironmentVariableW(
@@ -236,6 +150,7 @@ int __cdecl main(Platform::Array<Platform::String^>^ arguments)
             [](Microsoft::UI::Xaml::ApplicationInitializationCallbackParams^ parameters)
             {
                 (void)parameters;
+                SelectSystemCompositionIfRequested();
                 ref new App();
             }));
 }

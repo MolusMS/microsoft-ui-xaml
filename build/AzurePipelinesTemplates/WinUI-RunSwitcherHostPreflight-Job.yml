@@ -32,6 +32,12 @@ parameters:
   - name: runIgnoredTests
     type: boolean
     default: false
+  - name: winUIDetailsPrBuildId
+    type: string
+    default: ''
+  - name: expectedMockDCompSha256
+    type: string
+    default: ''
 
 jobs:
 - job: ${{ parameters.jobName }}
@@ -45,8 +51,6 @@ jobs:
     demands: ImageOverride -equals ge_current-vhdx_enterprise
   timeoutInMinutes: 300
   variables:
-    # Each generated job needs its own binding to the authorized token variable group.
-    - group: WinUI-InternalFeed
     - name: buildPlatform
       value: 'x86'
     - name: normalizedConfiguration
@@ -75,18 +79,6 @@ jobs:
       reg query "HKLM\Software\Microsoft\Windows NT\CurrentVersion"
     displayName: Display OS version info
 
-  - task: PowerShell@2
-    displayName: Register switcher LAF token as secret
-    inputs:
-      targetType: inline
-      script: |
-        if ([string]::IsNullOrEmpty($env:SWITCHER_LAF_TOKEN)) {
-          throw 'The composition switcher LAF token is unavailable.'
-        }
-        Write-Host "##vso[task.setsecret]$env:SWITCHER_LAF_TOKEN"
-    env:
-      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
-
   # Host preflights consume compiled pipeline artifacts and do not need source-tree packages.
   - template: WinUI-DownloadPipelineArtifacts-Steps.yml
     parameters:
@@ -106,7 +98,13 @@ jobs:
     inputs:
       targetType: filePath
       filePath: test\CreateTestPayload.ps1
-      arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols
+      arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols -ValidateSwitcherCompositionHosts
+
+  - template: WinUI-OverlayWinUIDetailsMockDComp-Steps.yml
+    parameters:
+      winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
+      expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
+      destinationPath: '$(testPayloadDirInner)\Test\MockDComp.dll'
 
   - task: powershell@2
     displayName: Prepare machine for host certification
@@ -119,18 +117,15 @@ jobs:
     env:
       HELIX_CORRELATION_PAYLOAD: $(testPayloadDirInner)
 
-  - ${{ if eq(parameters.hostingMode, 'UAP') }}:
-    - task: powershell@2
-      displayName: Create packaged switcher launch request
-      inputs:
-        targetType: filePath
-        filePath: build\PipelineScripts\Set-SwitcherLaunchRequest.ps1
-        arguments: >-
-          -LaunchRequestDirectory "$(testPayloadDirInner)\Test\.winui-switcher"
-          -NativeManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.native.current.xml"
-          -ManagedManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.managed.current.xml"
-      env:
-        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+  - task: PowerShell@2
+    displayName: Run private test pre-execution setup
+    inputs:
+      targetType: filePath
+      filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
+      arguments: >-
+        -EntryPoint TestPreExecutionSetup
+        -MockDCompPath "$(testPayloadDirInner)\Test\MockDComp.dll"
+        -Platform $(buildPlatform)
 
   - task: powershell@2
     timeoutInMinutes: 10
@@ -163,7 +158,6 @@ jobs:
             '-SkipPackageUninstall'
             '-TestBinaryPattern:${{ parameters.preflightTestBinaryPattern }}'
             '/p:SwitcherMode=true'
-            '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN%'
             '/reportLoadingIssue'
           )
           if ('${{ parameters.runIgnoredTests }}' -eq 'true') {
@@ -176,29 +170,8 @@ jobs:
             Write-Host "##[warning]Preflight selector '$($probe.Selector)' exited with code $probeExitCode; certification marker verification will determine the result."
           }
         }
-    env:
-      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
-
-  - task: PowerShell@2
-    condition: always()
-    displayName: Remove switcher launch requests
-    inputs:
-      targetType: filePath
-      filePath: build\PipelineScripts\Remove-SwitcherLaunchRequests.ps1
-      arguments: -TestDirectory "$(testPayloadDirInner)\Test"
-
-  - task: PowerShell@2
-    condition: always()
-    displayName: Sanitize switcher preflight artifacts
-    inputs:
-      targetType: filePath
-      filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
-      arguments: -ArtifactRoot "$(switcherPreflightPublishDirectory)"
-    env:
-      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
-
   - task: powershell@2
-    condition: and(always(), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+    condition: always()
     displayName: 'Verify ${{ parameters.hostingMode }} System composition preflight'
     inputs:
       targetType: inline
@@ -323,7 +296,7 @@ jobs:
         Write-Host '##vso[task.setvariable variable=SwitcherPreflightCertified]true'
 
   - task: PublishTestResults@2
-    condition: and(always(), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+    condition: always()
     displayName: 'Publish ${{ parameters.hostingMode }} switcher preflight results'
     inputs:
       testResultsFormat: xUnit
@@ -343,20 +316,6 @@ jobs:
         arguments: >-
           -RuntestsPath "$(testPayloadDirInner)\runtests.cmd"
 
-  - ${{ if eq(parameters.hostingMode, 'UAP') }}:
-    - task: powershell@2
-      condition: and(succeeded(), eq(variables['SwitcherPreflightCertified'], 'true'))
-      displayName: Recreate packaged switcher launch request for full suite
-      inputs:
-        targetType: filePath
-        filePath: build\PipelineScripts\Set-SwitcherLaunchRequest.ps1
-        arguments: >-
-          -LaunchRequestDirectory "$(testPayloadDirInner)\Test\.winui-switcher"
-          -NativeManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.native.current.xml"
-          -ManagedManifestPath "$(Build.SourcesDirectory)\dxaml\test\packages\appx\appxmanifest.managed.current.xml"
-      env:
-        SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
-
   - task: powershell@2
     condition: and(succeeded(), eq(variables['SwitcherPreflightCertified'], 'true'))
     continueOnError: true
@@ -375,7 +334,6 @@ jobs:
           '-TestsWithMasterFilesOnly'
           '-HostingMode:${{ parameters.hostingMode }}'
           '/p:SwitcherMode=true'
-          '/p:SwitcherLafToken=%SWITCHER_LAF_TOKEN%'
           '/reportLoadingIssue'
         )
 
@@ -403,29 +361,19 @@ jobs:
         if ($testExitCode -ne 0) {
           Write-Host "##[warning]Supported-host probe (${{ parameters.hostingMode }}) exited with code $testExitCode."
         }
-    env:
-      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
-
   - task: PowerShell@2
     condition: always()
-    displayName: Remove full-suite switcher launch requests
+    displayName: Run private test post-execution cleanup
     inputs:
       targetType: filePath
-      filePath: build\PipelineScripts\Remove-SwitcherLaunchRequests.ps1
-      arguments: -TestDirectory "$(testPayloadDirInner)\Test"
-
-  - task: PowerShell@2
-    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'))
-    displayName: Sanitize full-suite switcher artifacts
-    inputs:
-      targetType: filePath
-      filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
-      arguments: -ArtifactRoot "$(switcherPublishDirectory)"
-    env:
-      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
+      filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
+      arguments: >-
+        -EntryPoint TestPostExecutionCleanup
+        -MockDCompPath "$(testPayloadDirInner)\Test\MockDComp.dll"
+        -Platform $(buildPlatform)
 
   - task: powershell@2
-    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'))
     displayName: 'Verify ${{ parameters.hostingMode }} supported-host System composition certification'
     inputs:
       targetType: inline
@@ -466,18 +414,8 @@ jobs:
           Write-Host "No XamlTAEFOutput folder at $src - nothing to collect."
         }
 
-  - task: PowerShell@2
-    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'))
-    displayName: Sanitize collected full-suite artifacts
-    inputs:
-      targetType: filePath
-      filePath: build\PipelineScripts\Clear-SwitcherSensitiveArtifacts.ps1
-      arguments: -ArtifactRoot "$(switcherPublishDirectory)"
-    env:
-      SWITCHER_LAF_TOKEN: $(CompositionSwitcherLafToken)
-
   - task: PublishPipelineArtifact@1
-    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'), eq(variables['SwitcherArtifactsSanitized'], 'true'))
+    condition: and(always(), eq(variables['SwitcherFullSuiteStarted'], 'true'))
     displayName: 'Publish ${{ parameters.hostingMode }} switcher probe output'
     inputs:
       targetPath: $(switcherPublishDirectory)

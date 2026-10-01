@@ -165,6 +165,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         WMC1508 = 1508,
         WMC1509 = 1509,
         WMC1510 = 1510,
+        WMC1511 = 1511,
 
         // Xaml Compiler Internal error and other missplaced errors
         WMC9997 = 9997,

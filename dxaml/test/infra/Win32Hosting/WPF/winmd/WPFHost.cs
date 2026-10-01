@@ -43,17 +43,17 @@ namespace Private.Infrastructure.Hosting.WPF
         private bool noExit;
         private readonly bool initializeXamlManager;
         private readonly DpiAwarenessContext _dpiAwarenessContext;
-        private readonly string switcherLafToken;
+        private readonly bool switcherMode;
 
         internal WPFHost(
             DpiAwarenessContext dpiAwarenessContext,
             bool initializeXamlManager,
-            string switcherLafToken)
+            bool switcherMode)
         {
             this.noExit = true;
             this.initializeXamlManager = initializeXamlManager;
             this._dpiAwarenessContext = dpiAwarenessContext;
-            this.switcherLafToken = switcherLafToken;
+            this.switcherMode = switcherMode;
             if (Application.Current == null)
             {
                 this.application = new WPFApp();
@@ -82,10 +82,9 @@ namespace Private.Infrastructure.Hosting.WPF
             try
             {
                 var dqc = MUD::DispatcherQueueController.CreateOnCurrentThread();
-                if (this.switcherLafToken != null)
+                if (this.switcherMode)
                 {
-                    // Selection is one-shot and must precede XAML/compositor creation.
-                    CompositionSwitcher.Configure(this.switcherLafToken);
+                    CompositionSwitcher.Configure();
                 }
 
                 this.hostDispatcher.SetResult(Dispatcher.CurrentDispatcher);
@@ -100,14 +99,14 @@ namespace Private.Infrastructure.Hosting.WPF
                         // using (new XamlApplication())
                         using (WUX.Hosting.WindowsXamlManager.InitializeForCurrentThread())
                         {
-                            CertifyCompositionSwitcher();
+                            CertifyCompositionSwitcher(true);
                             this.WindowMessageLoop();
                         }
                     }
                     else
                     {
                         // Dont call InitializeForCurrentThread() and let the test own the xaml core
-                        CertifyCompositionSwitcher();
+                        CertifyCompositionSwitcher(false);
                         this.WindowMessageLoop();
                     }
                     dispatcher.DoEvents();
@@ -143,11 +142,18 @@ namespace Private.Infrastructure.Hosting.WPF
             }
         }
 
-        private void CertifyCompositionSwitcher()
+        private void CertifyCompositionSwitcher(bool xamlInitialized)
         {
-            if (this.switcherLafToken != null)
+            if (this.switcherMode)
             {
-                CompositionSwitcher.Certify();
+                if (xamlInitialized)
+                {
+                    CompositionSwitcher.Certify(new WUX.Controls.Grid());
+                }
+                else
+                {
+                    CompositionSwitcher.Certify();
+                }
             }
         }
 

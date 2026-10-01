@@ -38,19 +38,6 @@ function Copy-IfExists
     }
 }
 
-function Protect-SensitiveText
-{
-    param ([string] $text)
-
-    $switcherLafToken = $env:SWITCHER_LAF_TOKEN
-    if ([string]::IsNullOrEmpty($switcherLafToken))
-    {
-        return $text
-    }
-
-    return $text.Replace($switcherLafToken, "***")
-}
-
 # Cleanup any files that may have been left-over from previous runs:
 Delete-IfExists .\*_subresults.json
 Delete-IfExists .\*.wtl
@@ -79,7 +66,7 @@ if ($parts.Count -gt 1)
 
 Write-Host "testBinaries = $testBinaries"
 Write-Host "taefQuery = $taefQuery"
-Write-Host "taefParameters = $(Protect-SensitiveText $taefParameters)"
+Write-Host "taefParameters = $taefParameters"
 Write-Host "testnameprefix = $testnameprefix"
 
 $picturesPath = [Environment]::GetFolderPath("mypictures")
@@ -114,7 +101,7 @@ function Run-Taef
     Wiggle-Mouse
 
     $teCommand = "te.exe $testBinaries /enablewttlogging /enableEtwLogging /unicodeOutput:false /testtimeout:0:05 /p:DisableErrorHandling /screenCaptureOnError $taefParameters $taefAdditionalParams"
-    Write-Host (Protect-SensitiveText $teCommand)
+    Write-Host $teCommand
 
     # Ideally, we would just use '&' or 'Invoke-Expression' here to execute taef. However, powershell unhelpfully modifies the string to add 
     # extra quotes around parts of the arguments which gives the incorrect behavior since the argument string is already exactly as it needs 

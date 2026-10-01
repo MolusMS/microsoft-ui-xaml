@@ -1580,6 +1580,15 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.Properties {
                 return ResourceManager.GetString("XamlDom_UseHasGetAttachedMember", resourceCulture);
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized string similar to XAML compiler pass 2 completed, but {0} item(s) still appear out of date. This usually indicates stale intermediate output or intermediate files copied from another source tree. The build will continue, but the affected intermediate output should be removed before rebuilding. Details:{1}{2}.
+        /// </summary>
+        internal static string XamlCompiler_VerifyWorkDoneFailed {
+            get {
+                return ResourceManager.GetString("XamlCompiler_VerifyWorkDoneFailed", resourceCulture);
+            }
+        }
         
         /// <summary>
         ///   Looks up a localized string similar to Xaml Internal Error.

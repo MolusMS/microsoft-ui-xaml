@@ -9,23 +9,16 @@ namespace Private.Infrastructure.Hosting.WPF
     [global::Windows.Foundation.Metadata.MarshalingBehavior(global::Windows.Foundation.Metadata.MarshalingType.Agile)]
     public sealed partial class HostFactory : IWin32HostFactory, IWin32HostFactorySwitcher
     {
-        private string switcherLafToken;
+        private bool switcherMode;
 
         public void SetExceptionHandler(ExceptionHandler handler)
         {
             AppDomainExceptionHandler.SetExceptionHandler(handler);
         }
 
-        public void ConfigureCompositionSwitcher(string lafToken)
+        public void ConfigureCompositionSwitcher(string reserved)
         {
-            if (string.IsNullOrEmpty(lafToken))
-            {
-                throw new ArgumentException(
-                    "Composition switcher tests require a non-empty LAF token.",
-                    nameof(lafToken));
-            }
-
-            switcherLafToken = lafToken;
+            switcherMode = true;
         }
 
         private async Task<object> CreateInternal(DpiAwarenessContext dpiAwarenessContext, bool initCore)
@@ -33,7 +26,7 @@ namespace Private.Infrastructure.Hosting.WPF
             var wpfHost = new WPFHost(
                 dpiAwarenessContext,
                 initCore,
-                switcherLafToken);
+                switcherMode);
             await wpfHost.EnsureWindow();
             return wpfHost;
         }

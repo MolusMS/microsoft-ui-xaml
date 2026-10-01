@@ -1,0 +1,35 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+parameters:
+  - name: winUIDetailsPrBuildId
+    type: string
+    default: ''
+  - name: expectedMockDCompSha256
+    type: string
+  - name: destinationPath
+    type: string
+
+steps:
+- ${{ if ne(parameters.winUIDetailsPrBuildId, '') }}:
+  - task: DownloadPipelineArtifact@2
+    displayName: 'Download MockDComp from WinUIDetails PR build ${{ parameters.winUIDetailsPrBuildId }}'
+    inputs:
+      source: specific
+      runVersion: specific
+      project: '55e8140e-57ac-4e5f-8f9c-c7c15b51929d'
+      pipeline: '124366'
+      pipelineId: '${{ parameters.winUIDetailsPrBuildId }}'
+      artifactName: drop_WinUIDetailsBuild_x86fre_release
+      targetPath: '$(Agent.TempDirectory)\WinUIDetailsPrMockDComp'
+      itemPattern: '**/x86fre/MockDComp/dll/MockDComp.dll'
+
+  - task: PowerShell@2
+    displayName: Overlay validated WinUIDetails PR MockDComp
+    inputs:
+      targetType: filePath
+      filePath: build\PipelineScripts\Install-MockDCompArtifact.ps1
+      arguments: >-
+        -ArtifactRoot "$(Agent.TempDirectory)\WinUIDetailsPrMockDComp"
+        -DestinationPath "${{ parameters.destinationPath }}"
+        -ExpectedSha256 "${{ parameters.expectedMockDCompSha256 }}"
