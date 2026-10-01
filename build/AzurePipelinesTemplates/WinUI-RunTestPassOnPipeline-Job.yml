@@ -11,6 +11,14 @@ parameters:
   rerunPassesRequiredToAvoidFailure: 5
   testPayloadArtifactName: 'TestPayload'
   failOnTestFailure: true
+  agentPoolName: ''
+  imageOverride: ''
+  parallelJobs: 0
+  workItemsProjNameFilter: 'RunTestsInHelix-*.proj'
+  jobTimeoutInMinutes: 100
+  testTimeoutInMinutes: 90
+  preTestSteps: []
+  postTestSteps: []
 # We run the bulk of our tests in Helix. But this Job runs tests directly on the Pipeline agents.
 # These Pipeline agents are running on a ni_release build of Windows which is not available in Helix.
 # This approach allows us to run tests on prerelease builds of Windows.
@@ -22,23 +30,29 @@ jobs:
   pool:
     type: windows
     isCustom: true
-    ${{ if or(eq( parameters.buildPlatform, 'arm64' ), eq( parameters.buildPlatform, 'arm64ec' )) }}:
+    ${{ if ne(parameters.agentPoolName, '') }}:
+      name: ${{ parameters.agentPoolName }}
+    ${{ if and(eq(parameters.agentPoolName, ''), or(eq(parameters.buildPlatform, 'arm64'), eq(parameters.buildPlatform, 'arm64ec'))) }}:
       name: WinDevPool-Arm64
-      ${{ if eq( parameters.testOS, 'Win11-23H2' ) }}:
-        demands: ImageOverride -equals Win11-23h2-pro-arm64
-    ${{ else }}:
+    ${{ if and(eq(parameters.agentPoolName, ''), not(or(eq(parameters.buildPlatform, 'arm64'), eq(parameters.buildPlatform, 'arm64ec')))) }}:
       name: WinDevPool-Test
-      ${{ if eq( parameters.testOS, 'Win10-RS5' ) }}:
-        demands: ImageOverride -equals Win10-2019-LTSC
-      ${{ if eq( parameters.testOS, 'Win11-25H2' ) }}:
-        demands: ImageOverride -equals Win11-25H2
-      ${{ if eq( parameters.testOS, 'Win11-23H2') }}:
-        demands: ImageOverride -equals Win11-23H2
-  timeoutInMinutes: 100
+    ${{ if ne(parameters.imageOverride, '') }}:
+      demands: ImageOverride -equals ${{ parameters.imageOverride }}
+    ${{ if and(eq(parameters.imageOverride, ''), or(eq(parameters.buildPlatform, 'arm64'), eq(parameters.buildPlatform, 'arm64ec')), eq(parameters.testOS, 'Win11-23H2')) }}:
+      demands: ImageOverride -equals Win11-23h2-pro-arm64
+    ${{ if and(eq(parameters.imageOverride, ''), not(or(eq(parameters.buildPlatform, 'arm64'), eq(parameters.buildPlatform, 'arm64ec'))), eq(parameters.testOS, 'Win10-RS5')) }}:
+      demands: ImageOverride -equals Win10-2019-LTSC
+    ${{ if and(eq(parameters.imageOverride, ''), not(or(eq(parameters.buildPlatform, 'arm64'), eq(parameters.buildPlatform, 'arm64ec'))), eq(parameters.testOS, 'Win11-25H2')) }}:
+      demands: ImageOverride -equals Win11-25H2
+    ${{ if and(eq(parameters.imageOverride, ''), not(or(eq(parameters.buildPlatform, 'arm64'), eq(parameters.buildPlatform, 'arm64ec'))), eq(parameters.testOS, 'Win11-23H2')) }}:
+      demands: ImageOverride -equals Win11-23H2
+  timeoutInMinutes: ${{ parameters.jobTimeoutInMinutes }}
   strategy:
-    ${{ if eq( parameters.testSuite, 'DevTestSuite') }}:
+    ${{ if ne(parameters.parallelJobs, 0) }}:
+      parallel: ${{ parameters.parallelJobs }}
+    ${{ if and(eq(parameters.parallelJobs, 0), eq(parameters.testSuite, 'DevTestSuite')) }}:
       parallel: 20
-    ${{ if eq( parameters.testSuite, 'ScenarioTestSuite') }}:
+    ${{ if and(eq(parameters.parallelJobs, 0), eq(parameters.testSuite, 'ScenarioTestSuite')) }}:
       parallel: 5
 
   variables:
@@ -53,7 +67,7 @@ jobs:
     testRunTitlePrefix: ${{ parameters.testSuite }}$(testOS)$(buildFlavor)
     testRunTitle: '$(testRunTitlePrefix)$(System.JobPositionInPhase)'
     workItemsProjDir: $(Build.SourcesDirectory)\helixworkitems\${{ parameters.testSuite }}\$(buildFlavor)\$(testOS)
-    workItemsProjNameFilter: RunTestsInHelix-*.proj
+    workItemsProjNameFilter: ${{ parameters.workItemsProjNameFilter }}
     artifactStatus: 'Succeeded'
     
     # This should reduce concurrent memory allocations and allow us to make better use of our buffer pool which will help with the failures on arm64 machines to download artifacts
@@ -89,15 +103,21 @@ jobs:
       script: |
         Copy-Item -Path "$(Build.ArtifactStagingDirectory)\${{ parameters.testPayloadArtifactName }}_*\*" -Destination "$(Build.SourcesDirectory)" -Recurse -Force
 
+  - ${{ each step in parameters.preTestSteps }}:
+    - ${{ step }}
+
   - task: powershell@2
     displayName: Run Tests
-    timeoutInMinutes: 90
+    timeoutInMinutes: ${{ parameters.testTimeoutInMinutes }}
     inputs:
       targetType: filePath
       filePath: Helix\common\pipeline\RunTestPassSliceOnBuildAgent.ps1
       arguments: -WorkItemProjFileNameFilter $(workItemsProjNameFilter) -WorkItemProjDir $(workItemsProjDir) -TestPayloadDir $(testPayloadDir) -UploadRoot $(uploadRootInner) -JobPositionInPhase $(System.JobPositionInPhase) -TotalJobsInPhase $(System.TotalJobsInPhase) -RerunPassesRequiredToAvoidFailure ${{ parameters.rerunPassesRequiredToAvoidFailure }}
       errorActionPreference: stop
       workingDirectory: $(Build.SourcesDirectory)\build\PipelineScripts
+
+  - ${{ each step in parameters.postTestSteps }}:
+    - ${{ step }}
 
   - task: PublishTestResults@2
     condition: always()

@@ -25,276 +25,195 @@ stages:
   dependsOn: Build
   condition: not(failed())
   jobs:
-  - job: RunSwitcherTests_x86chk
-    pool:
-      type: windows
-      isCustom: true
-      name: WinDevPool-Test
-      demands: ImageOverride -equals ge_current-vhdx_enterprise
-    timeoutInMinutes: 180
-    variables:
-      - name: buildPlatform
-        value: 'x86'
-      - name: normalizedConfiguration
-        value: 'chk'
-      - name: buildFolderName
-        value: x86chk
-      - name: incomingArtifactsPath
-        value: $(Build.ArtifactStagingDirectory)\incoming
-      - name: testPayloadDir
-        value: $(Build.SourcesDirectory)\TestPayload
-      - name: testPayloadDirInner
-        value: $(testPayloadDir)\x86chk
-      - name: helixWorkItemsDir
-        value: $(Build.SourcesDirectory)\helixworkitems
-      - name: switcherResultsDir
-        value: $(Build.SourcesDirectory)\build\PipelineScripts
-      - name: switcherResultsFile
-        value: testResults-Foundation-Graphics-SwitcherTests.xml
-      - name: isValidateWindowsAppSDKRun
-        value: 0
-      - name: ob_outputDirectory
-        value: c:\uploadroot
-      - name: ob_artifactBaseName
-        value: 'switcher_x86chk'
-      - name: ob_sdl_binskim_enabled
-        value: false
+  - template: WinUI-CreateTestPayload-Job.yml
+    parameters:
+      runTestJobName: CreateSwitcherTestPayload_x86chk
+      pipelineKind: QuickPR
+      testSuite: DevTestSuite
+      testPayloadArtifactName: SwitcherTestPayload
+      includeWinUIGallery: false
+      taefQuery: "${{ parameters.taefQuery }}"
+      taefExtraParameters: '/p:SwitcherMode=true /reportLoadingIssue'
+      runIgnoredTests: 1
+      postPayloadCreationSteps:
+      - template: WinUI-OverlayWinUIDetailsMockDComp-Steps.yml
+        parameters:
+          winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
+          expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
+          destinationPath: '$(testBinaryPath)\Test\MockDComp.dll'
+      - task: powershell@2
+        displayName: Prepare machine for test discovery
+        inputs:
+          targetType: filePath
+          filePath: $(testBinaryPath)\RunSetupIfNeeded.ps1
+          workingDirectory: $(testBinaryPath)
+          errorActionPreference: continue
+          ignoreLASTEXITCODE: true
+        env:
+          HELIX_CORRELATION_PAYLOAD: $(testBinaryPath)
 
-    steps:
-    - script: |
-        reg query "HKLM\Software\Microsoft\Windows NT\CurrentVersion"
-      displayName: Display OS version info
+  - template: WinUI-RunTestPassOnPipeline-Job.yml
+    parameters:
+      runTestStageName: RunSwitcherTests
+      runTestJobName: RunSwitcherTests_x86chk
+      dependsOn: CreateSwitcherTestPayload_x86chk
+      buildPlatform: x86
+      buildConfiguration: chk
+      testOS: Win11-25H2
+      testSuite: DevTestSuite
+      rerunPassesRequiredToAvoidFailure: 1
+      testPayloadArtifactName: SwitcherTestPayload
+      failOnTestFailure: false
+      agentPoolName: WinDevPool-Test
+      imageOverride: ge_current-vhdx_enterprise
+      parallelJobs: 1
+      workItemsProjNameFilter: RunTestsInHelix-MUXCoreTests.proj
+      jobTimeoutInMinutes: 180
+      testTimeoutInMinutes: 120
+      preTestSteps:
+      - task: PowerShell@2
+        displayName: Run private test pre-execution setup
+        inputs:
+          targetType: filePath
+          filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
+          arguments: >-
+            -EntryPoint TestPreExecutionSetup
+            -MockDCompPath "$(testPayloadDir)\Test\MockDComp.dll"
+            -Platform $(buildPlatform)
+      postTestSteps:
+      - task: PowerShell@2
+        condition: always()
+        displayName: Run private test post-execution cleanup
+        inputs:
+          targetType: filePath
+          filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
+          arguments: >-
+            -EntryPoint TestPostExecutionCleanup
+            -MockDCompPath "$(testPayloadDir)\Test\MockDComp.dll"
+            -Platform $(buildPlatform)
 
-    - task: NuGetAuthenticate@1
-
-    - task: NuGetCommand@2
-      displayName: 'NuGet restore Lifted XAML dependencies'
-      inputs:
-        command: 'custom'
-        arguments: 'restore packages.config -ConfigFile nuget.config -PackagesDirectory $(Build.SourcesDirectory)\packages'
-        includeNuGetOrg: false
-
-    - template: WinUI-DownloadPipelineArtifacts-Steps.yml
-      parameters:
-        enableUseOutputFromPreviousBuild: true
-        itemPattern: '**/?(x86chk|GenXBF|Taef)/**'
-        targetPath: $(incomingArtifactsPath)
-
-    # The build publishes each flavor as a 'drop_*' artifact whose contents are rooted under a
-    # 'drop\' folder (e.g. drop\x86chk\TAEF, drop\GenXBF\x86). Merge the downloaded drop_* folders
-    # up into $(incomingArtifactsPath) so the payload lives at $(incomingArtifactsPath)\drop, matching
-    # what CreateTestPayload.ps1 -BinSourceRoot expects (mirrors WinUI-CreateTestPayload-Job.yml).
-    - task: PowerShell@2
-      displayName: Merge downloaded drops to parent
-      inputs:
-        targetType: 'inline'
-        script: |
-          Copy-Item -Path "$(incomingArtifactsPath)\drop_*\*" -Destination "$(incomingArtifactsPath)" -Recurse -Force
-
-    - task: powershell@2
-      displayName: Prepare test payload
-      inputs:
-        targetType: filePath
-        filePath: test\CreateTestPayload.ps1
-        arguments: -BinSourceRoot $(incomingArtifactsPath)\drop -Platform x86 -Configuration chk -Mode DevTestSuite -ShowPayload -SkipSymbols -ValidateSwitcherCompositionHosts
-
-    - template: WinUI-OverlayWinUIDetailsMockDComp-Steps.yml
-      parameters:
-        winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
-        expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
-        destinationPath: '$(testPayloadDirInner)\Test\MockDComp.dll'
-
-    # Work-item generation runs TAEF discovery, so the UAP dependencies must be installed before
-    # generation. RunHelixWorkItem.ps1 calls this again, but the payload marker makes that a no-op.
-    - task: powershell@2
-      displayName: Prepare machine for test discovery
-      inputs:
-        targetType: filePath
-        filePath: $(testPayloadDirInner)\RunSetupIfNeeded.ps1
-        workingDirectory: $(testPayloadDirInner)
-        errorActionPreference: continue
-        ignoreLASTEXITCODE: true
-      env:
-        HELIX_CORRELATION_PAYLOAD: $(testPayloadDirInner)
-
-    - task: PowerShell@2
-      displayName: Run private test pre-execution setup
-      inputs:
-        targetType: filePath
-        filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
-        arguments: >-
-          -EntryPoint TestPreExecutionSetup
-          -MockDCompPath "$(testPayloadDirInner)\Test\MockDComp.dll"
-          -Platform $(buildPlatform)
-
-    # Generate the focused work item through the existing DevTestSuite path.
-    - template: WinUI-CreateHelixProjFile-Steps.yml
-      parameters:
-        testFilePathPattern: 'Test\Microsoft.UI.Xaml.Tests.External.Foundation.dll'
-        testBinaryPath: $(testPayloadDirInner)
-        outputProjFileName: 'RunTestsInHelix-SwitcherTests.proj'
-        testSuite: DevTestSuite
-        taefQuery: "${{ parameters.taefQuery }}"
-        taefExtraParameters: '/p:HostingMode=UAP /p:SwitcherMode=true /reportLoadingIssue'
-        # This focused work item intentionally includes the named ignored tests.
-        runIgnoredTests: 1
-        targetOsVersion: '26200'
-        taefExePath: $(testPayloadDirInner)\te.exe
-
-    - task: powershell@2
-      displayName: Run Switcher Tests
-      timeoutInMinutes: 120
-      inputs:
-        targetType: filePath
-        filePath: Helix\common\pipeline\RunTestPassSliceOnBuildAgent.ps1
-        arguments: -WorkItemProjFileNameFilter RunTestsInHelix-SwitcherTests.proj -WorkItemProjDir $(helixWorkItemsDir) -TestPayloadDir $(testPayloadDirInner) -UploadRoot $(ob_outputDirectory) -JobPositionInPhase 1 -TotalJobsInPhase 1 -RerunPassesRequiredToAvoidFailure 1
-        errorActionPreference: stop
-        workingDirectory: $(switcherResultsDir)
-
-    - task: PowerShell@2
-      condition: always()
-      displayName: Run private test post-execution cleanup
-      inputs:
-        targetType: filePath
-        filePath: build\PipelineScripts\Invoke-MockDCompPrivateTestApi.ps1
-        arguments: >-
-          -EntryPoint TestPostExecutionCleanup
-          -MockDCompPath "$(testPayloadDirInner)\Test\MockDComp.dll"
-          -Platform $(buildPlatform)
-
-    - task: PowerShell@2
-      condition: always()
-      displayName: Remove temporary switcher runner files
-      inputs:
-        targetType: inline
-        script: |
-          foreach ($temporaryFile in @(
-              (Join-Path "$(switcherResultsDir)" 'args.txt'),
-              (Join-Path "$(switcherResultsDir)" 'temp-runworkitem.cmd'),
-              (Join-Path "$(testPayloadDirInner)" 'run.cmd'))) {
-            if (Test-Path -LiteralPath $temporaryFile -PathType Leaf) {
-              Remove-Item -LiteralPath $temporaryFile -Force
+      - task: PowerShell@2
+        condition: always()
+        displayName: Remove temporary switcher runner files
+        inputs:
+          targetType: inline
+          script: |
+            foreach ($temporaryFile in @(
+                (Join-Path "$(Build.SourcesDirectory)\build\PipelineScripts" 'args.txt'),
+                (Join-Path "$(Build.SourcesDirectory)\build\PipelineScripts" 'temp-runworkitem.cmd'),
+                (Join-Path "$(testPayloadDir)" 'run.cmd'))) {
+              if (Test-Path -LiteralPath $temporaryFile -PathType Leaf) {
+                Remove-Item -LiteralPath $temporaryFile -Force
+              }
             }
-          }
 
-    - task: powershell@2
-      condition: always()
-      displayName: Verify switcher certification results
-      inputs:
-        targetType: inline
-        workingDirectory: $(switcherResultsDir)
-        script: |
-          $resultPath = Join-Path (Get-Location) '$(switcherResultsFile)'
-          if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
-            throw "No switcher xUnit results were produced at $resultPath."
-          }
+      - task: powershell@2
+        condition: always()
+        displayName: Verify switcher certification results
+        inputs:
+          targetType: inline
+          workingDirectory: $(Build.SourcesDirectory)\build\PipelineScripts
+          script: |
+            $resultPath = Join-Path (Get-Location) 'testResults-Foundation-Graphics-SwitcherTests.xml'
+            if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
+              throw "No switcher xUnit results were produced at $resultPath."
+            }
 
-          $total = 0
-          $passed = 0
-          $failed = 0
-          $skipped = 0
-          $errors = 0
-          [xml]$result = Get-Content -LiteralPath $resultPath
-          foreach ($assembly in @($result.assemblies.assembly)) {
-            $total += [int]$assembly.total
-            $passed += [int]$assembly.passed
-            $failed += [int]$assembly.failed
-            $skipped += [int]$assembly.skipped
-            $errors += [int]$assembly.errors
-          }
+            $total = 0
+            $passed = 0
+            $failed = 0
+            $skipped = 0
+            $errors = 0
+            [xml]$result = Get-Content -LiteralPath $resultPath
+            foreach ($assembly in @($result.assemblies.assembly)) {
+              $total += [int]$assembly.total
+              $passed += [int]$assembly.passed
+              $failed += [int]$assembly.failed
+              $skipped += [int]$assembly.skipped
+              $errors += [int]$assembly.errors
+            }
 
-          $expectedMethods = @(
-            1..13 | ForEach-Object { "CompNode${_}WUCFullSwitcherWithMockDComp" }
-          ) + 'VerifyLiftedSystemCompositionPath'
-          $expectedTestCount = ${{ parameters.expectedTestCount }}
-          $expectedPassedCount = $expectedTestCount - 1
-          $knownFailureMethod = 'CompNode12WUCFullSwitcherWithMockDComp'
-          $testCases = @($result.SelectNodes('/assemblies/assembly/collection/test'))
-          $actualMethods = @($testCases | ForEach-Object { [string]$_.method })
-          $missingMethods = @($expectedMethods | Where-Object { $actualMethods -notcontains $_ })
-          $unexpectedMethods = @($actualMethods | Where-Object { $expectedMethods -notcontains $_ })
-          $duplicateMethods = @(
-            $actualMethods |
-              Group-Object |
-              Where-Object Count -ne 1 |
-              ForEach-Object Name
-          )
-
-          Write-Host "Switcher xUnit summary: Total=$total Passed=$passed Failed=$failed Skipped=$skipped Errors=$errors"
-          if ($expectedMethods.Count -ne $expectedTestCount) {
-            throw "Switcher verifier configuration contains $($expectedMethods.Count) methods, but expectedTestCount is $expectedTestCount."
-          }
-          if ($testCases.Count -ne $total -or
-              $missingMethods.Count -ne 0 -or
-              $unexpectedMethods.Count -ne 0 -or
-              $duplicateMethods.Count -ne 0) {
-            throw "Switcher certification test shape mismatch. Missing=[$($missingMethods -join ', ')] Unexpected=[$($unexpectedMethods -join ', ')] Duplicates=[$($duplicateMethods -join ', ')]."
-          }
-          if ($total -ne $expectedTestCount -or
-              $passed -ne $expectedPassedCount -or
-              $failed -ne 1 -or
-              $skipped -ne 0 -or
-              $errors -ne 0) {
-            throw "Switcher certification requires exactly $expectedPassedCount passes, the known CompNode12 failure, and no skipped tests or errors."
-          }
-
-          $failedTests = @($testCases | Where-Object { $_.result -eq 'Fail' })
-          if ($failedTests.Count -ne 1 -or
-              [string]$failedTests[0].method -ne $knownFailureMethod) {
-            $failedMethods = @($failedTests | ForEach-Object { [string]$_.method })
-            throw "Only $knownFailureMethod may fail; observed failures=[$($failedMethods -join ', ')]."
-          }
-
-          foreach ($certificationMethod in @(
-              'VerifyLiftedSystemCompositionPath')) {
-            $certificationTest = @(
-              $testCases |
-                Where-Object { [string]$_.method -eq $certificationMethod }
+            $expectedMethods = @(
+              1..13 | ForEach-Object { "CompNode${_}WUCFullSwitcherWithMockDComp" }
+            ) + 'VerifyLiftedSystemCompositionPath'
+            $expectedTestCount = ${{ parameters.expectedTestCount }}
+            $expectedPassedCount = $expectedTestCount - 1
+            $knownFailureMethod = 'CompNode12WUCFullSwitcherWithMockDComp'
+            $testCases = @($result.SelectNodes('/assemblies/assembly/collection/test'))
+            $actualMethods = @($testCases | ForEach-Object { [string]$_.method })
+            $missingMethods = @($expectedMethods | Where-Object { $actualMethods -notcontains $_ })
+            $unexpectedMethods = @($actualMethods | Where-Object { $expectedMethods -notcontains $_ })
+            $duplicateMethods = @(
+              $actualMethods |
+                Group-Object |
+                Where-Object Count -ne 1 |
+                ForEach-Object Name
             )
-            if ($certificationTest.Count -ne 1 -or
-                [string]$certificationTest[0].result -ne 'Pass') {
-              throw "Required System certification test $certificationMethod did not pass exactly once."
+
+            Write-Host "Switcher xUnit summary: Total=$total Passed=$passed Failed=$failed Skipped=$skipped Errors=$errors"
+            if ($expectedMethods.Count -ne $expectedTestCount) {
+              throw "Switcher verifier configuration contains $($expectedMethods.Count) methods, but expectedTestCount is $expectedTestCount."
             }
-          }
+            if ($testCases.Count -ne $total -or
+                $missingMethods.Count -ne 0 -or
+                $unexpectedMethods.Count -ne 0 -or
+                $duplicateMethods.Count -ne 0) {
+              throw "Switcher certification test shape mismatch. Missing=[$($missingMethods -join ', ')] Unexpected=[$($unexpectedMethods -join ', ')] Duplicates=[$($duplicateMethods -join ', ')]."
+            }
+            if ($total -ne $expectedTestCount -or
+                $passed -ne $expectedPassedCount -or
+                $failed -ne 1 -or
+                $skipped -ne 0 -or
+                $errors -ne 0) {
+              throw "Switcher certification requires exactly $expectedPassedCount passes, the known CompNode12 failure, and no skipped tests or errors."
+            }
 
-    - task: PublishTestResults@2
-      condition: always()
-      inputs:
-        testResultsFormat: xUnit
-        testResultsFiles: $(switcherResultsFile)
-        searchFolder: $(switcherResultsDir)
-        mergeTestResults: true
-        # The preceding verifier permits only the single known CompNode12 failure.
-        failTaskOnFailedTests: false
-        testRunTitle: 'SwitcherTests x86chk'
+            $failedTests = @($testCases | Where-Object { $_.result -eq 'Fail' })
+            if ($failedTests.Count -ne 1 -or
+                [string]$failedTests[0].method -ne $knownFailureMethod) {
+              $failedMethods = @($failedTests | ForEach-Object { [string]$_.method })
+              throw "Only $knownFailureMethod may fail; observed failures=[$($failedMethods -join ', ')]."
+            }
 
-    # Publish the generated .save.xml trees + diffs/screenshots so switcher baselines can be
-    # captured from this run (they are intentionally NOT committed; see PR description).
-    # Resilient: ensure the output dir exists and only copy when the test actually produced output,
-    # so a missing XamlTAEFOutput folder (e.g. no trees generated) doesn't error the stage.
-    - task: PowerShell@2
-      condition: always()
-      displayName: Collect generated trees for baselining
-      inputs:
-        targetType: 'inline'
-        script: |
-          $dest = "$(ob_outputDirectory)\SwitcherBaselining"
-          New-Item -ItemType Directory -Path $dest -Force | Out-Null
-          $src = Join-Path $env:USERPROFILE 'Pictures\XamlTAEFOutput'
-          if (Test-Path $src) {
-            robocopy $src $dest *.save.xml *.out.xml *.png *.jpg /S /NFL /NDL /NJH /NJS | Out-Null
-            if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
-            Write-Host "Collected switcher baseline output from $src"
-          } else {
-            Write-Host "No XamlTAEFOutput folder at $src - nothing to collect (test produced no trees)."
-          }
+            foreach ($certificationMethod in @(
+                'VerifyLiftedSystemCompositionPath')) {
+              $certificationTest = @(
+                $testCases |
+                  Where-Object { [string]$_.method -eq $certificationMethod }
+              )
+              if ($certificationTest.Count -ne 1 -or
+                  [string]$certificationTest[0].result -ne 'Pass') {
+                throw "Required System certification test $certificationMethod did not pass exactly once."
+              }
+            }
 
-    - task: PublishPipelineArtifact@1
-      condition: always()
-      displayName: Publish switcher output for baselining
-      inputs:
-        targetPath: $(ob_outputDirectory)\SwitcherBaselining
-        artifact: 'switcher_x86chk'
+      # Publish the generated .save.xml trees + diffs/screenshots so switcher baselines can be
+      # captured from this run (they are intentionally NOT committed; see PR description).
+      # Resilient: ensure the output dir exists and only copy when the test actually produced output,
+      # so a missing XamlTAEFOutput folder (e.g. no trees generated) doesn't error the stage.
+      - task: PowerShell@2
+        condition: always()
+        displayName: Collect generated trees for baselining
+        inputs:
+          targetType: 'inline'
+          script: |
+            $dest = "$(ob_outputDirectory)\SwitcherBaselining"
+            New-Item -ItemType Directory -Path $dest -Force | Out-Null
+            $src = Join-Path $env:USERPROFILE 'Pictures\XamlTAEFOutput'
+            if (Test-Path $src) {
+              robocopy $src $dest *.save.xml *.out.xml *.png *.jpg /S /NFL /NDL /NJH /NJS | Out-Null
+              if ($LASTEXITCODE -lt 8) { $global:LASTEXITCODE = 0 }
+              Write-Host "Collected switcher baseline output from $src"
+            } else {
+              Write-Host "No XamlTAEFOutput folder at $src - nothing to collect (test produced no trees)."
+            }
+
+      - task: PublishPipelineArtifact@1
+        condition: always()
+        displayName: Publish switcher output for baselining
+        inputs:
+          targetPath: $(ob_outputDirectory)\SwitcherBaselining
+          artifact: 'switcher_x86chk'
 
   - template: WinUI-RunSwitcherHostPreflight-Job.yml
     parameters:
