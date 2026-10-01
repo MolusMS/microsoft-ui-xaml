@@ -233,23 +233,27 @@ int32_t __stdcall MuxcActivationHandler(
 // runs and log the report so execution can continue far enough to expose
 // the underlying failure.
 namespace {
-    int __cdecl LogCrtFailure(int reportType, wchar_t* filename, int linenumber, wchar_t*, wchar_t* message)
+    int __cdecl LogCrtFailure(int reportType, wchar_t* message, int* returnValue)
     {
         if (reportType == _CRT_ASSERT || reportType == _CRT_ERROR)
         {
-            wchar_t buf[512];
-            swprintf_s(buf, L"*** CRT %s: %s [%s:%d]\n",
+            wchar_t buf[512]{};
+            swprintf_s(buf, L"*** CRT %s: %s\n",
                 reportType == _CRT_ASSERT ? L"ASSERT" : L"ERROR",
-                message ? message : L"(no message)",
-                filename ? filename : L"(unknown)", linenumber);
+                message ? message : L"(no message)");
             OutputDebugStringW(buf);
             fwprintf(stderr, L"%s", buf);
             fflush(stderr);
 
-            // Preserve interactive debugging without terminating unattended runs.
+            if (returnValue)
+            {
+                *returnValue = 0;
+            }
+
             if (IsDebuggerPresent()) __debugbreak();
+            return TRUE;
         }
-        return TRUE;
+        return FALSE;
     }
 }
 #endif

@@ -268,7 +268,7 @@ stages:
         failTaskOnFailedTests: false
         testRunTitle: 'SwitcherTests x86chk'
 
-    # Publish the generated .save.xml trees + diffs/screenshots so switcher baselines can be
+    # Collect the generated .save.xml trees + diffs/screenshots so switcher baselines can be
     # captured from this run (they are intentionally NOT committed; see PR description).
     # Resilient: ensure the output dir exists and only copy when the test actually produced output,
     # so a missing XamlTAEFOutput folder (e.g. no trees generated) doesn't error the stage.
@@ -291,9 +291,11 @@ stages:
 
     - task: PublishPipelineArtifact@1
       condition: always()
-      displayName: Publish switcher output for baselining
+      displayName: Publish switcher diagnostics
       inputs:
-        targetPath: $(ob_outputDirectory)\SwitcherBaselining
+        # RunTestPassSliceOnBuildAgent also places console logs, WTL files, and
+        # up to three collected crash dumps at the root of this directory.
+        targetPath: $(ob_outputDirectory)
         artifact: 'switcher_x86chk'
 
   - template: WinUI-RunSwitcherHostPreflight-Job.yml

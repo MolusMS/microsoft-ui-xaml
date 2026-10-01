@@ -61,39 +61,47 @@ namespace StringHelpers
     }
 }
 
-// In checked/debug builds, suppress CRT dialog boxes that hang automated test
-// runs and log the report so the test can continue far enough to expose the
-// underlying failure. TAEF spawns multiple Te.ProcessHost.exe processes;
+// In checked/debug builds, suppress process-error dialog boxes that hang
+// automated test runs. TAEF spawns multiple Te.ProcessHost.exe processes;
 // ModuleSetup only runs in one of them. A static constructor runs in ALL
 // processes that load this DLL, so the suppression is always active.
 #if defined(_DEBUG) || defined(DBG)
 namespace {
-    int __cdecl LogCrtFailure(int reportType, wchar_t* filename, int linenumber, wchar_t*, wchar_t* message)
+#if defined(_DEBUG)
+    // The UCRT compiles report-hook support out unless _DEBUG selects the debug CRT.
+    int __cdecl LogCrtFailure(int reportType, wchar_t* message, int* returnValue)
     {
         if (reportType == _CRT_ASSERT || reportType == _CRT_ERROR)
         {
-            wchar_t buf[512];
-            swprintf_s(buf, L"*** CRT %s: %s [%s:%d]\n",
+            wchar_t buf[512]{};
+            swprintf_s(buf, L"*** CRT %s: %s\n",
                 reportType == _CRT_ASSERT ? L"ASSERT" : L"ERROR",
-                message ? message : L"(no message)",
-                filename ? filename : L"(unknown)", linenumber);
+                message ? message : L"(no message)");
             OutputDebugStringW(buf);
             fwprintf(stderr, L"%s", buf);
             fflush(stderr);
 
-            // Preserve interactive debugging without terminating unattended runs.
+            if (returnValue)
+            {
+                *returnValue = 0;
+            }
+
             if (IsDebuggerPresent()) __debugbreak();
+            return TRUE;
         }
-        return TRUE;
+        return FALSE;
     }
+#endif
 
     void ApplyCrtSuppression()
     {
         _set_error_mode(_OUT_TO_STDERR);
+#if defined(_DEBUG)
         _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
         _CrtSetReportMode(_CRT_ERROR,  _CRTDBG_MODE_DEBUG);
         _CrtSetReportMode(_CRT_WARN,   _CRTDBG_MODE_DEBUG);
         _CrtSetReportHookW2(_CRT_RPTHOOK_INSTALL, LogCrtFailure);
+#endif
         _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     }
@@ -108,7 +116,7 @@ bool ModuleSetup()
 {
 #if defined(_DEBUG) || defined(DBG)
     // Re-apply: other DLLs loaded since the static constructor may
-    // have overridden our CRT report settings.
+    // have overridden our failure-reporting settings.
     ApplyCrtSuppression();
 #endif
 
