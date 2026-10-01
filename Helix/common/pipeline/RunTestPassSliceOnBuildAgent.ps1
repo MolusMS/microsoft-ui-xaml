@@ -114,50 +114,124 @@ if ($workItemsToRun.Count -eq 0)
     exit 0
 }
 
-foreach($workItem in $workItemsToRun)
+$packageDumpWatcherProcess = $null
+$packageDumpWatcherStartTime = $null
+$packageDumpWatcherStopFile = $null
+if($EnablePackagedAppCrashDumps)
 {
-    $command = $workItem.Command
-    $precommand = $workItem.PreCommands
-    $workItemName = $workItem.Include
-    $resultsFileName = ".\testResults-$workItemName.xml"
-    $workItemUploadRoot = Join-Path $uploadRoot $workItemName
-    mkdir $workItemUploadRoot
-
-    $consoleLogOutputFile = Join-Path $workItemUploadRoot "console.log"
-
-    $env:HELIX_CORRELATION_PAYLOAD = $TestPayloadDir
-    $env:HELIX_WORKITEM_UPLOAD_ROOT = $workItemUploadRoot
-    $env:rerunPassesRequiredToAvoidFailure = $RerunPassesRequiredToAvoidFailure
-    $env:HELIX_DUMP_FOLDER = $dumpsDir
-
-    Write-Host "Running $workItemName work item"
-
-    # Due to the presence of quotes, symbols, etc. we cannot directly invoke $command from Powershell. So instead we write it to
-    # a .cmd file and invoke that.
-    $fullCommand = "@echo off`n$precommand`n$command"
-    Write-Host $fullCommand
-    Out-File -FilePath "temp-runworkitem.cmd" -Encoding ascii -InputObject $fullCommand
-    try
+    # TAEF can remove package data during unregister, so preserve app-local WER dumps while tests run.
+    $packageRoot = Join-Path $env:LOCALAPPDATA "Packages"
+    $packageDumpWatcherScript = Join-Path $PSScriptRoot "Watch-PackagedAppCrashDumps.ps1"
+    $packageDumpWatcherLog = Join-Path $UploadRoot "switcher-package-dump-watcher.txt"
+    $packageDumpWatcherErrorLog = Join-Path $UploadRoot "switcher-package-dump-watcher-error.txt"
+    $packageDumpWatcherStopFile = Join-Path $env:TEMP "switcher-package-dump-watcher-$([Guid]::NewGuid().ToString('N')).stop"
+    $powerShellPath = Join-Path $PSHOME "powershell.exe"
+    if(!(Test-Path -LiteralPath $packageDumpWatcherScript -PathType Leaf))
     {
-        & ./temp-runworkitem.cmd | Tee-Object -file $consoleLogOutputFile
-    }
-    finally
-    {
-        Remove-Item -LiteralPath ".\temp-runworkitem.cmd" -Force
+        Throw "Packaged-app dump watcher script was not found at $packageDumpWatcherScript."
     }
 
-    if(!$SkipCopyTestResultsXml)
+    $watcherArguments = @(
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "`"$packageDumpWatcherScript`"",
+        "-PackageRoot", "`"$packageRoot`"",
+        "-UploadRoot", "`"$UploadRoot`"",
+        "-StopFile", "`"$packageDumpWatcherStopFile`"",
+        "-LogPath", "`"$packageDumpWatcherLog`""
+    )
+    $watcherProcessParameters = @{
+        FilePath = $powerShellPath
+        ArgumentList = $watcherArguments
+        PassThru = $true
+        WindowStyle = "Hidden"
+        RedirectStandardError = $packageDumpWatcherErrorLog
+    }
+    $packageDumpWatcherProcess = Start-Process @watcherProcessParameters
+    $packageDumpWatcherStartTime = $packageDumpWatcherProcess.StartTime
+    Write-Host "Started packaged-app dump watcher with PID $($packageDumpWatcherProcess.Id)."
+    Start-Sleep -Milliseconds 500
+    if($packageDumpWatcherProcess.HasExited)
     {
-        if (!(Test-Path ".\testResults.xml"))
+        Throw "Packaged-app dump watcher exited before test execution. See $packageDumpWatcherLog and $packageDumpWatcherErrorLog."
+    }
+}
+
+try
+{
+    foreach($workItem in $workItemsToRun)
+    {
+        $command = $workItem.Command
+        $precommand = $workItem.PreCommands
+        $workItemName = $workItem.Include
+        $resultsFileName = ".\testResults-$workItemName.xml"
+        $workItemUploadRoot = Join-Path $uploadRoot $workItemName
+        mkdir $workItemUploadRoot
+
+        $consoleLogOutputFile = Join-Path $workItemUploadRoot "console.log"
+
+        $env:HELIX_CORRELATION_PAYLOAD = $TestPayloadDir
+        $env:HELIX_WORKITEM_UPLOAD_ROOT = $workItemUploadRoot
+        $env:rerunPassesRequiredToAvoidFailure = $RerunPassesRequiredToAvoidFailure
+        $env:HELIX_DUMP_FOLDER = $dumpsDir
+
+        Write-Host "Running $workItemName work item"
+
+        # Due to the presence of quotes, symbols, etc. we cannot directly invoke $command from Powershell. So instead we write it to
+        # a .cmd file and invoke that.
+        $fullCommand = "@echo off`n$precommand`n$command"
+        Write-Host $fullCommand
+        Out-File -FilePath "temp-runworkitem.cmd" -Encoding ascii -InputObject $fullCommand
+        try
         {
-            # We expect the work item to produce a 'testResults.xml' file. If it didn't, something bad happened.
-            Throw "Expected testResults.xml to be found. Something unexpected happened."
+            & ./temp-runworkitem.cmd | Tee-Object -file $consoleLogOutputFile
         }
-    
-        Move-Item .\testResults.xml $resultsFileName
-    }
+        finally
+        {
+            Remove-Item -LiteralPath ".\temp-runworkitem.cmd" -Force
+        }
 
-    Get-ChildItem -Path $workItemUploadRoot -Filter *_subresults.json | Move-Item -Destination $uploadRoot
+        if(!$SkipCopyTestResultsXml)
+        {
+            if (!(Test-Path ".\testResults.xml"))
+            {
+                # We expect the work item to produce a 'testResults.xml' file. If it didn't, something bad happened.
+                Throw "Expected testResults.xml to be found. Something unexpected happened."
+            }
+
+            Move-Item .\testResults.xml $resultsFileName
+        }
+
+        Get-ChildItem -Path $workItemUploadRoot -Filter *_subresults.json | Move-Item -Destination $uploadRoot
+    }
+}
+finally
+{
+    if($packageDumpWatcherProcess)
+    {
+        try
+        {
+            Set-Content -LiteralPath $packageDumpWatcherStopFile -Value "stop"
+            [void]$packageDumpWatcherProcess.WaitForExit(10000)
+        }
+        finally
+        {
+            $runningWatcher = Get-Process -Id $packageDumpWatcherProcess.Id -ErrorAction SilentlyContinue
+            if($runningWatcher -and $runningWatcher.StartTime -eq $packageDumpWatcherStartTime)
+            {
+                Write-Warning "Packaged-app dump watcher did not exit after its stop signal. Stopping verified PID $($runningWatcher.Id)."
+                Stop-Process -Id $runningWatcher.Id
+                [void]$packageDumpWatcherProcess.WaitForExit(5000)
+            }
+            Remove-Item -LiteralPath $packageDumpWatcherStopFile -Force -ErrorAction SilentlyContinue
+        }
+        if($packageDumpWatcherProcess.HasExited -and $packageDumpWatcherProcess.ExitCode -ne 0)
+        {
+            Write-Warning "Packaged-app dump watcher exited with code $($packageDumpWatcherProcess.ExitCode). See $packageDumpWatcherErrorLog."
+        }
+    }
 }
 
 # Upload at most 3 dumps from this run
