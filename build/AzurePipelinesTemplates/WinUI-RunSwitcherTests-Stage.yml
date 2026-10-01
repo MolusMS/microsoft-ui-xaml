@@ -187,10 +187,8 @@ stages:
               }
             }
 
-      # Publish the generated .save.xml trees + diffs/screenshots so switcher baselines can be
-      # captured from this run (they are intentionally NOT committed; see PR description).
-      # Resilient: ensure the output dir exists and only copy when the test actually produced output,
-      # so a missing XamlTAEFOutput folder (e.g. no trees generated) doesn't error the stage.
+      # Add generated trees and images to the standard job artifact for baseline analysis.
+      # A missing XamlTAEFOutput folder is valid when the test produced no trees.
       - task: PowerShell@2
         condition: always()
         displayName: Collect generated trees for baselining
@@ -207,13 +205,6 @@ stages:
             } else {
               Write-Host "No XamlTAEFOutput folder at $src - nothing to collect (test produced no trees)."
             }
-
-      - task: PublishPipelineArtifact@1
-        condition: always()
-        displayName: Publish switcher output for baselining
-        inputs:
-          targetPath: $(ob_outputDirectory)\SwitcherBaselining
-          artifact: 'switcher_x86chk'
 
   - template: WinUI-RunSwitcherHostPreflight-Job.yml
     parameters:
