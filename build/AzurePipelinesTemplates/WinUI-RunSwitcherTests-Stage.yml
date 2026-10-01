@@ -18,6 +18,9 @@ parameters:
   - name: expectedMockDCompSha256
     type: string
     default: '18D7D8B72264D5CF43966F559169DBD297333C1724ED049F4589ABB3244C06BF'
+  - name: runBroadProbes
+    type: boolean
+    default: false
 
 stages:
 - stage: RunSwitcherTests
@@ -299,31 +302,32 @@ stages:
         targetPath: $(ob_outputDirectory)
         artifact: 'switcher_x86chk'
 
-  - template: WinUI-RunSwitcherHostPreflight-Job.yml
-    parameters:
-      jobName: RunSwitcherHostPreflight_UAP_x86chk
-      displayName: 'Certify and probe UAP-supported master-backed tests under System composition'
-      logFileName: fullsuite-switcher-probe-uap.log
-      artifactName: switcher_fullsuite_uap_x86chk
-      hostingMode: UAP
-      preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.External.*.dll'
-      certificationMarker: 'SwitcherMode: native packaged UAP test process selected and certified System composition.'
-      runIgnoredTests: true
-      preflightTestSelector: 'SwitcherTests*VerifyLiftedSystemCompositionPath'
-      preflightLogFileName: switcher-preflight-uap-native.log
-      winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
-      expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
+  - ${{ if eq(parameters.runBroadProbes, true) }}:
+    - template: WinUI-RunSwitcherHostPreflight-Job.yml
+      parameters:
+        jobName: RunSwitcherHostPreflight_UAP_x86chk
+        displayName: 'Certify and probe UAP-supported master-backed tests under System composition'
+        logFileName: fullsuite-switcher-probe-uap.log
+        artifactName: switcher_fullsuite_uap_x86chk
+        hostingMode: UAP
+        preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.External.*.dll'
+        certificationMarker: 'SwitcherMode: native packaged UAP test process selected and certified System composition.'
+        runIgnoredTests: true
+        preflightTestSelector: 'SwitcherTests*VerifyLiftedSystemCompositionPath'
+        preflightLogFileName: switcher-preflight-uap-native.log
+        winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
+        expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
 
-  - template: WinUI-RunSwitcherHostPreflight-Job.yml
-    parameters:
-      jobName: RunSwitcherHostPreflight_WPF_x86chk
-      displayName: 'Certify and probe WPF-supported master-backed tests under System composition'
-      logFileName: fullsuite-switcher-probe-wpf.log
-      artifactName: switcher_fullsuite_wpf_x86chk
-      hostingMode: WPF
-      preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.*.dll'
-      certificationMarker: 'SwitcherMode: Private.Infrastructure.Hosting.WPF.HostFactory selected and certified System composition.'
-      preflightTestSelector: 'WPFTests*VerifyPLMHandlerNoException'
-      preflightLogFileName: switcher-preflight-wpf.log
-      winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
-      expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}
+    - template: WinUI-RunSwitcherHostPreflight-Job.yml
+      parameters:
+        jobName: RunSwitcherHostPreflight_WPF_x86chk
+        displayName: 'Certify and probe WPF-supported master-backed tests under System composition'
+        logFileName: fullsuite-switcher-probe-wpf.log
+        artifactName: switcher_fullsuite_wpf_x86chk
+        hostingMode: WPF
+        preflightTestBinaryPattern: 'Test\Microsoft.UI.Xaml.Tests.*.dll'
+        certificationMarker: 'SwitcherMode: Private.Infrastructure.Hosting.WPF.HostFactory selected and certified System composition.'
+        preflightTestSelector: 'WPFTests*VerifyPLMHandlerNoException'
+        preflightLogFileName: switcher-preflight-wpf.log
+        winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
+        expectedMockDCompSha256: ${{ parameters.expectedMockDCompSha256 }}

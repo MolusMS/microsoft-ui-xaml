@@ -47,6 +47,10 @@ parameters:
   displayName: "WinUIDetails PR build supplying temporary MockDComp (manual runs only)"
   type: string
   default: ''
+- name: runSwitcherBroadProbes
+  displayName: "Run temporary broad UAP and WPF Switcher probes"
+  type: boolean
+  default: false
 
 variables:
 - template: AzurePipelinesTemplates\WindowsAppSDK-Versions.yml@WindowsAppSDKVersionConfig
@@ -198,6 +202,7 @@ extends:
       - template: AzurePipelinesTemplates\WinUI-RunSwitcherTests-Stage.yml
         parameters:
           winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
+          runBroadProbes: ${{ parameters.runSwitcherBroadProbes }}
 
     - ${{ if and(eq(parameters.runFullValidation, true), eq(parameters.switcherOnly, false)) }}:
       - template: build\AzurePipelinesTemplates\WinUI-RunStaticTests-Stage.yml@WinUIInternal
