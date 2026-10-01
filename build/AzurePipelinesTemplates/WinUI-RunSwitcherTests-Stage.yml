@@ -147,7 +147,7 @@ stages:
       inputs:
         targetType: filePath
         filePath: Helix\common\pipeline\RunTestPassSliceOnBuildAgent.ps1
-        arguments: -WorkItemProjFileNameFilter RunTestsInHelix-SwitcherTests.proj -WorkItemProjDir $(helixWorkItemsDir) -TestPayloadDir $(testPayloadDirInner) -UploadRoot $(ob_outputDirectory) -JobPositionInPhase 1 -TotalJobsInPhase 1 -RerunPassesRequiredToAvoidFailure 1
+        arguments: -WorkItemProjFileNameFilter RunTestsInHelix-SwitcherTests.proj -WorkItemProjDir $(helixWorkItemsDir) -TestPayloadDir $(testPayloadDirInner) -UploadRoot $(ob_outputDirectory) -JobPositionInPhase 1 -TotalJobsInPhase 1 -RerunPassesRequiredToAvoidFailure 1 -EnablePackagedAppCrashDumps
         errorActionPreference: stop
         workingDirectory: $(switcherResultsDir)
 

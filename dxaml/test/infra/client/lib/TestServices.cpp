@@ -137,6 +137,32 @@ HRESULT TestServicesStatics::RuntimeClassInitialize()
                 if (_wcsicmp(executableName, L"taefhostapp.exe") == 0 &&
                     _wcsicmp(certifiedHost, L"native") == 0)
                 {
+                    wchar_t dumpRegistrationResult[11]{};
+                    SetLastError(ERROR_SUCCESS);
+                    const DWORD dumpRegistrationResultLength =
+                        GetEnvironmentVariableW(
+                            L"WINUI_SWITCHER_WER_LOCAL_DUMP_REGISTRATION",
+                            dumpRegistrationResult,
+                            ARRAYSIZE(dumpRegistrationResult));
+                    if (dumpRegistrationResultLength == 0)
+                    {
+                        const DWORD error = GetLastError();
+                        LogThrow_If(
+                            error != ERROR_SUCCESS &&
+                            error != ERROR_ENVVAR_NOT_FOUND,
+                            HRESULT_FROM_WIN32(error));
+                    }
+                    LogThrow_If(
+                        dumpRegistrationResultLength >=
+                            ARRAYSIZE(dumpRegistrationResult),
+                        HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));
+                    WEX::Logging::Log::Comment(
+                        WEX::Common::String().Format(
+                            L"SwitcherMode: packaged UAP crash-dump registration returned %s.",
+                            dumpRegistrationResultLength == 0
+                                ? L"<not reported>"
+                                : dumpRegistrationResult));
+
                     certificationMarker =
                         L"SwitcherMode: native packaged UAP test process selected and certified System composition.";
                 }

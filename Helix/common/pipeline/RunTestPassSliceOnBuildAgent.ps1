@@ -20,6 +20,8 @@ param(
 
     [int]$RerunPassesRequiredToAvoidFailure = 5,
 
+    [switch]$EnablePackagedAppCrashDumps,
+
     [switch]$SkipCopyTestResultsXml
 )
 
@@ -45,6 +47,36 @@ $dumpsDir = "C:\dumps"
 if(!(Test-Path $dumpsDir))
 {
     mkdir $dumpsDir
+}
+
+$dumpCollectionStartedAt = Get-Date
+if($EnablePackagedAppCrashDumps)
+{
+    $nativeSystemDirectory = "$env:SystemRoot\System32"
+    if([Environment]::Is64BitOperatingSystem -and ![Environment]::Is64BitProcess)
+    {
+        $nativeSystemDirectory = "$env:SystemRoot\Sysnative"
+    }
+
+    $icaclsPath = Join-Path $nativeSystemDirectory "icacls.exe"
+    Write-Host "Granting AppContainer processes access to $dumpsDir"
+    & $icaclsPath $dumpsDir /grant:r '*S-1-15-2-1:(OI)(CI)(M)'
+    if($LASTEXITCODE -ne 0)
+    {
+        Throw "Failed to grant ALL APPLICATION PACKAGES access to $dumpsDir. Exit code: $LASTEXITCODE"
+    }
+
+    & $icaclsPath $dumpsDir /setintegritylevel '(OI)(CI)L'
+    if($LASTEXITCODE -ne 0)
+    {
+        Throw "Failed to set low integrity on $dumpsDir. Exit code: $LASTEXITCODE"
+    }
+
+    & $icaclsPath $dumpsDir
+    if($LASTEXITCODE -ne 0)
+    {
+        Throw "Failed to read permissions for $dumpsDir. Exit code: $LASTEXITCODE"
+    }
 }
 
 
@@ -129,8 +161,76 @@ foreach($workItem in $workItemsToRun)
 }
 
 # Upload at most 3 dumps from this run
-$files = Get-ChildItem -Path $dumpsDir -Filter *.dmp | Select-Object -First 3
+$files = @(Get-ChildItem -Path $dumpsDir -Filter *.dmp -File)
+if($EnablePackagedAppCrashDumps)
+{
+    $packageRoot = Join-Path $env:LOCALAPPDATA "Packages"
+    $packageDirectories = @()
+    if(Test-Path -LiteralPath $packageRoot -PathType Container)
+    {
+        $packageDirectories = Get-ChildItem -LiteralPath $packageRoot -Directory |
+            Where-Object { $_.Name -like "XamlTAEFTests_*" }
+        foreach($packageDirectory in $packageDirectories)
+        {
+            $files += Get-ChildItem -LiteralPath $packageDirectory.FullName -Filter *.dmp -File -Recurse -ErrorAction SilentlyContinue
+        }
+    }
+
+    $diagnosticsPath = Join-Path $uploadRoot "switcher-dump-collection.txt"
+    "Dump collection started at $($dumpCollectionStartedAt.ToString('o'))" |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8
+    "C:\dumps permissions:" |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    $dumpPermissions = & $icaclsPath $dumpsDir 2>&1
+    $dumpPermissionsExitCode = $LASTEXITCODE
+    $dumpPermissions |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    "icacls.exe exit code: $dumpPermissionsExitCode" |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    "Native TaefHostApp WER configuration:" |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    $regPath = Join-Path $nativeSystemDirectory "reg.exe"
+    $werConfiguration = & $regPath query "HKLM\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\taefhostapp.exe" /s 2>&1
+    $werConfigurationExitCode = $LASTEXITCODE
+    $werConfiguration |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    "reg.exe exit code: $werConfigurationExitCode" |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    $global:LASTEXITCODE = 0
+    "Matching package directories:" |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    $packageDirectories.FullName |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+
+    $werEvents = Get-WinEvent -FilterHashtable @{
+        LogName = "Application"
+        StartTime = $dumpCollectionStartedAt
+    } -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProviderName -eq "Application Error" -or
+        $_.ProviderName -eq "Windows Error Reporting"
+    }
+    "Application Error and WER events:" |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    $werEvents |
+        Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+        Format-List |
+        Out-String |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+
+    $minimumDumpWriteTime = $dumpCollectionStartedAt.AddSeconds(-5)
+    $files = @($files |
+        Where-Object { $_.LastWriteTime -ge $minimumDumpWriteTime } |
+        Sort-Object FullName -Unique |
+        Sort-Object LastWriteTime -Descending)
+}
+
+$files = @($files | Select-Object -First 3)
+if($files.Count -eq 0)
+{
+    Write-Warning "No crash dumps were found for this test run."
+}
 foreach($file in $files)
 {
-    Move-Item $file.FullName $uploadRoot -Force
+    Write-Host "Collecting crash dump $($file.FullName)"
+    Copy-Item $file.FullName $uploadRoot -Force
 }

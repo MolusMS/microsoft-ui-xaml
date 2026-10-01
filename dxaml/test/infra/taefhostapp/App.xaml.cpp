@@ -2,6 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 #include "pch.h"
+#include <werapi.h>
 
 using namespace TaefHostApp;
 
@@ -20,6 +21,10 @@ namespace
 #endif
     constexpr wchar_t SwitcherCertificationEnvironmentVariable[] =
         L"WINUI_SWITCHER_SYSTEM_COMPOSITION_CERTIFIED";
+    constexpr wchar_t SwitcherDumpRegistrationEnvironmentVariable[] =
+        L"WINUI_SWITCHER_WER_LOCAL_DUMP_REGISTRATION";
+    constexpr wchar_t SwitcherDumpRelativePath[] =
+        L"SwitcherCrashDumps";
     bool systemCompositionConfigured = false;
     bool systemCompositionCertified = false;
 
@@ -71,6 +76,24 @@ namespace
                 Microsoft::UI::Composition::CompositionEngineType::System))
         {
             throw Platform::Exception::CreateException(E_FAIL);
+        }
+
+        const HRESULT dumpRegistrationResult =
+            WerRegisterAppLocalDump(SwitcherDumpRelativePath);
+        wchar_t formattedDumpRegistrationResult[11]{};
+        if (swprintf_s(
+                formattedDumpRegistrationResult,
+                L"0x%08X",
+                static_cast<unsigned int>(dumpRegistrationResult)) < 0)
+        {
+            throw Platform::Exception::CreateException(E_UNEXPECTED);
+        }
+        if (!SetEnvironmentVariableW(
+                SwitcherDumpRegistrationEnvironmentVariable,
+                formattedDumpRegistrationResult))
+        {
+            throw Platform::Exception::CreateException(
+                HRESULT_FROM_WIN32(GetLastError()));
         }
 
         systemCompositionConfigured = true;
