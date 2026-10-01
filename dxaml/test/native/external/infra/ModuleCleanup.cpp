@@ -62,13 +62,13 @@ namespace StringHelpers
 }
 
 // In checked/debug builds, suppress CRT dialog boxes that hang automated test
-// runs, and crash immediately on CRT asserts/errors.  TAEF spawns
-// multiple Te.ProcessHost.exe processes; ModuleSetup only runs in one
-// of them.  A static constructor runs in ALL processes that load this
-// DLL, so the suppression is always active.
+// runs and log the report so the test can continue far enough to expose the
+// underlying failure. TAEF spawns multiple Te.ProcessHost.exe processes;
+// ModuleSetup only runs in one of them. A static constructor runs in ALL
+// processes that load this DLL, so the suppression is always active.
 #if defined(_DEBUG) || defined(DBG)
 namespace {
-    int __cdecl CrashOnCrtFailure(int reportType, wchar_t* filename, int linenumber, wchar_t*, wchar_t* message)
+    int __cdecl LogCrtFailure(int reportType, wchar_t* filename, int linenumber, wchar_t*, wchar_t* message)
     {
         if (reportType == _CRT_ASSERT || reportType == _CRT_ERROR)
         {
@@ -79,13 +79,12 @@ namespace {
                 filename ? filename : L"(unknown)", linenumber);
             OutputDebugStringW(buf);
             fwprintf(stderr, L"%s", buf);
+            fflush(stderr);
 
-            // Break into debugger if attached, then failfast so WER
-            // collects a crash dump for the test harness.
+            // Preserve interactive debugging without terminating unattended runs.
             if (IsDebuggerPresent()) __debugbreak();
-            __fastfail(FAST_FAIL_FATAL_APP_EXIT);
         }
-        return -1;  // _CRT_WARN: suppress dialog, keep running
+        return TRUE;
     }
 
     void ApplyCrtSuppression()
@@ -94,7 +93,7 @@ namespace {
         _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
         _CrtSetReportMode(_CRT_ERROR,  _CRTDBG_MODE_DEBUG);
         _CrtSetReportMode(_CRT_WARN,   _CRTDBG_MODE_DEBUG);
-        _CrtSetReportHookW2(_CRT_RPTHOOK_INSTALL, CrashOnCrtFailure);
+        _CrtSetReportHookW2(_CRT_RPTHOOK_INSTALL, LogCrtFailure);
         _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     }

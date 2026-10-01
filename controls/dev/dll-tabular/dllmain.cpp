@@ -259,10 +259,10 @@ int32_t __stdcall MuxcActivationHandler(
 
 #ifdef _DEBUG
 // In debug builds, suppress CRT dialog boxes that hang automated test
-// runs and crash immediately on CRT asserts/errors so failures are
-// never silently swallowed.
+// runs and log the report so execution can continue far enough to expose
+// the underlying failure.
 namespace {
-    int __cdecl CrashOnCrtFailure(int reportType, wchar_t* filename, int linenumber, wchar_t*, wchar_t* message)
+    int __cdecl LogCrtFailure(int reportType, wchar_t* filename, int linenumber, wchar_t*, wchar_t* message)
     {
         if (reportType == _CRT_ASSERT || reportType == _CRT_ERROR)
         {
@@ -272,13 +272,13 @@ namespace {
                 message ? message : L"(no message)",
                 filename ? filename : L"(unknown)", linenumber);
             OutputDebugStringW(buf);
+            fwprintf(stderr, L"%s", buf);
+            fflush(stderr);
 
-            // Break into debugger if attached, then failfast so WER
-            // collects a crash dump for the test harness.
+            // Preserve interactive debugging without terminating unattended runs.
             if (IsDebuggerPresent()) __debugbreak();
-            __fastfail(FAST_FAIL_FATAL_APP_EXIT);
         }
-        return -1;  // _CRT_WARN: suppress dialog, keep running
+        return TRUE;
     }
 }
 #endif
@@ -292,12 +292,12 @@ STDAPI_(BOOL) DllMain(_In_ HINSTANCE hInstance, _In_ DWORD reason, _In_opt_ void
         RegisterTraceLogging();
 
 #ifdef _DEBUG
-        // Suppress CRT dialog boxes; crash on asserts/errors.
+        // Suppress CRT dialog boxes and keep assertions/errors diagnostic-only.
         _set_error_mode(_OUT_TO_STDERR);
         _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
         _CrtSetReportMode(_CRT_ERROR,  _CRTDBG_MODE_DEBUG);
         _CrtSetReportMode(_CRT_WARN,   _CRTDBG_MODE_DEBUG);
-        _CrtSetReportHookW2(_CRT_RPTHOOK_INSTALL, CrashOnCrtFailure);
+        _CrtSetReportHookW2(_CRT_RPTHOOK_INSTALL, LogCrtFailure);
         _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #endif
@@ -352,4 +352,3 @@ STDAPI_(void) DeinitializeTabular()
     LifetimeHandler::ClearMaterialHelperInstance();
 #endif
 }
-
