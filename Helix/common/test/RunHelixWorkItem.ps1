@@ -117,17 +117,34 @@ function Run-Taef
     }
 }
 
-function Copy-Screenshots
+function Copy-TestDiagnostics
 {
     if (Test-Path ".\WexLogFileOutput")
     {
         # Copy at most 10 screenshots to the upload path.
         # In the cases where a large number of tests failed, there is little value in uploading dozens of screenshots
-        $files = Get-ChildItem -Path ".\WexLogFileOutput" -Filter *.jpg |Select-Object -First 10
-        foreach($file in $files)
+        $screenshots = Get-ChildItem -Path ".\WexLogFileOutput" -Filter *.jpg | Select-Object -First 10
+        foreach($screenshot in $screenshots)
         {
-            Copy-Item $file.FullName $env:HELIX_WORKITEM_UPLOAD_ROOT -Force
+            Copy-Item $screenshot.FullName $env:HELIX_WORKITEM_UPLOAD_ROOT -Force
         }
+
+        $existingDumps = @(
+            Get-ChildItem -Path $env:HELIX_WORKITEM_UPLOAD_ROOT -Filter *.dmp -File -ErrorAction SilentlyContinue
+        )
+        $remainingDumpCount = [Math]::Max(0, 3 - $existingDumps.Count)
+        if($remainingDumpCount -gt 0)
+        {
+            $dumps = Get-ChildItem -Path ".\WexLogFileOutput" -Filter *.dmp -File |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First $remainingDumpCount
+            foreach($dump in $dumps)
+            {
+                Write-Host "Collecting TAEF crash dump $($dump.FullName)"
+                Copy-Item $dump.FullName $env:HELIX_WORKITEM_UPLOAD_ROOT -Force
+            }
+        }
+
         Delete-IfExists .\WexLogFileOutput\*
     }
 }
@@ -152,7 +169,7 @@ Write-Host "WorkItemTestEndTime: $(Get-Date)"
 
 Move-Item .\te.wtl te_original.wtl -Force
 Copy-Item .\te_original.wtl $env:HELIX_WORKITEM_UPLOAD_ROOT -Force
-Copy-Screenshots
+Copy-TestDiagnostics
 Copy-IfExists .\*.pgc $env:HELIX_WORKITEM_UPLOAD_ROOT
 Copy-MasterFiles
 
@@ -173,7 +190,7 @@ if ($failedTestQuery -and $rerunFailed)
 
     Move-Item .\te.wtl te_rerun.wtl -Force
     Copy-Item .\te_rerun.wtl $env:HELIX_WORKITEM_UPLOAD_ROOT -Force
-    Copy-Screenshots
+    Copy-TestDiagnostics
     Copy-MasterFiles
 
     $failedTestQuery = [HelixTestHelpers.FailedTestDetector]::GetFailedTestQuery((Join-Path (Get-Location) "te_rerun.wtl"))
@@ -192,7 +209,7 @@ if ($failedTestQuery -and $rerunFailed)
     Move-Item .\te.wtl te_rerun_multiple.wtl -Force
     Copy-Item .\te_rerun_multiple.wtl $env:HELIX_WORKITEM_UPLOAD_ROOT -Force
 
-    Copy-Screenshots
+    Copy-TestDiagnostics
     Copy-MasterFiles
 
     Write-Host "WorkItemTestLoopEndTime: $(Get-Date)"

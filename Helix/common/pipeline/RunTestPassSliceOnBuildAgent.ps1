@@ -162,6 +162,10 @@ foreach($workItem in $workItemsToRun)
 
 # Upload at most 3 dumps from this run
 $files = @(Get-ChildItem -Path $dumpsDir -Filter *.dmp -File)
+$taefDumpFiles = @(
+    Get-ChildItem -LiteralPath $UploadRoot -Filter *.dmp -File -Recurse -ErrorAction SilentlyContinue
+)
+$files += $taefDumpFiles
 if($EnablePackagedAppCrashDumps)
 {
     $packageRoot = Join-Path $env:LOCALAPPDATA "Packages"
@@ -201,6 +205,10 @@ if($EnablePackagedAppCrashDumps)
         Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
     $packageDirectories.FullName |
         Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    "TAEF mini dumps under upload root:" |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
+    $taefDumpFiles.FullName |
+        Out-File -LiteralPath $diagnosticsPath -Encoding utf8 -Append
 
     $werEvents = Get-WinEvent -FilterHashtable @{
         LogName = "Application"
@@ -229,8 +237,16 @@ if($files.Count -eq 0)
 {
     Write-Warning "No crash dumps were found for this test run."
 }
+$uploadRootPrefix = [System.IO.Path]::GetFullPath($UploadRoot).TrimEnd('\') + '\'
 foreach($file in $files)
 {
+    $sourcePath = [System.IO.Path]::GetFullPath($file.FullName)
+    if($sourcePath.StartsWith($uploadRootPrefix, [StringComparison]::OrdinalIgnoreCase))
+    {
+        Write-Host "Crash dump is already under the upload root: $sourcePath"
+        continue
+    }
+
     Write-Host "Collecting crash dump $($file.FullName)"
     Copy-Item $file.FullName $uploadRoot -Force
 }
