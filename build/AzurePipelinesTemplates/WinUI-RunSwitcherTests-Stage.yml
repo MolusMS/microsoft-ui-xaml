@@ -135,8 +135,8 @@ stages:
         outputProjFileName: 'RunTestsInHelix-SwitcherTests.proj'
         testSuite: DevTestSuite
         taefQuery: "${{ parameters.taefQuery }}"
-        # WER does not observe this packaged fail-fast, so use TAEF's established dump path.
-        taefExtraParameters: '/p:HostingMode=UAP /p:SwitcherMode=true /reportLoadingIssue /miniDumpOnCrash'
+        # Current TAEF ignores /miniDumpOnCrash; /miniDumpOnError is the supported dump path.
+        taefExtraParameters: '/p:HostingMode=UAP /p:SwitcherMode=true /reportLoadingIssue /miniDumpOnError'
         # This focused work item intentionally includes the named ignored tests.
         runIgnoredTests: 1
         targetOsVersion: '26200'
