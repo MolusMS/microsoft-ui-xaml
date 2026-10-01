@@ -40,7 +40,7 @@ parameters:
   type: string
   default: ''
 - name: switcherOnly
-  displayName: "Build x86chk and run only Composition Switcher validation"
+  displayName: "Run manual Composition Switcher diagnostic validation"
   type: boolean
   default: false
 - name: winUIDetailsPrBuildId
@@ -193,8 +193,10 @@ extends:
           # Test results are published but do not gate the pipeline yet.
           failOnTestFailure: false
 
-    # Run the dedicated Composition Switcher validation from this repository.
-    - ${{ if eq(parameters.runFullValidation, true) }}:
+    # Keep the temporary unsigned-artifact overlay and broad probes manual-only.
+    # Automatic PR and nightly tiers require a signed package with the private
+    # MockDComp lifecycle API.
+    - ${{ if and(eq(parameters.runFullValidation, true), eq(parameters.switcherOnly, true)) }}:
       - template: AzurePipelinesTemplates\WinUI-RunSwitcherTests-Stage.yml
         parameters:
           winUIDetailsPrBuildId: ${{ parameters.winUIDetailsPrBuildId }}
