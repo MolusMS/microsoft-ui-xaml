@@ -4,24 +4,12 @@
 #include "pch.h"
 #include "SwitcherTests.h"
 #include <XamlTailored.h>
-#include <TestEvent.h>
-#include <SafeEventRegistration.h>
 #include "FileLoader.h"
-#include "TestCleanupWrapper.h"
-#include <RuntimeEnabledFeatureOverride.h>
-#include <RuntimeParameters.h>
 #include <wrl.h>
 
-using namespace ::Windows::UI;
 using namespace Microsoft::UI::Xaml;
 using namespace Microsoft::UI::Xaml::Controls;
-using namespace Microsoft::UI::Xaml::Markup;
-using namespace Microsoft::UI::Xaml::Media;
-using namespace Microsoft::UI::Xaml::Media::Media3D;
-using namespace Microsoft::UI::Xaml::Media::Animation;
 using namespace Microsoft::UI::Xaml::Tests::Common;
-using namespace Microsoft::UI::Xaml::Controls::Primitives;
-using namespace Microsoft::UI::Xaml::Shapes;
 
 using namespace test_infra;
 
@@ -46,9 +34,6 @@ bool SwitcherTests::ClassCleanup()
 
 bool SwitcherTests::TestSetup()
 {
-    // Tests in this class mirror the lifted CompNodeTests pattern: inject MockDComp,
-    // load XAML, call VerifyMockDCompOutput. Switcher is enabled process-wide in
-    // the packaged entry point before Application::Start.
     test_infra::TestServices::WindowHelper->InitializeXaml();
     return true;
 }
@@ -58,123 +43,6 @@ bool SwitcherTests::TestCleanup()
     test_infra::TestServices::WindowHelper->ShutdownXaml();
     TestServices::WindowHelper->VerifyTestCleanup();
     return true;
-}
-
-void SwitcherTests::CompNode1WUCFullSwitcherWithMockDComp()
-{
-    // Switching leaves one 16-byte process-lifetime allocation attributed to
-    // XamlCheckProcessRequirements. Keep the exemption scoped to this test.
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-
-    // Switcher + MockDComp injection together. With the IXP identity refactor in place,
-    // VerifyMockDCompOutput should produce XML byte-identical to the non-switcher master.
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode1.xaml");
-}
-
-void SwitcherTests::CompNode2WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode2.xaml");
-}
-
-void SwitcherTests::CompNode3WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode3.xaml");
-}
-
-void SwitcherTests::CompNode4WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode4.xaml");
-}
-
-void SwitcherTests::CompNode5WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode5.xaml");
-}
-
-void SwitcherTests::CompNode6WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode6.xaml");
-}
-
-void SwitcherTests::CompNode7WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode7.xaml");
-}
-
-void SwitcherTests::CompNode8WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode8.xaml");
-}
-
-void SwitcherTests::CompNode9WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode9.xaml");
-}
-
-void SwitcherTests::CompNode10WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode10.xaml");
-}
-
-void SwitcherTests::CompNode11WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode11.xaml");
-}
-
-void SwitcherTests::CompNode12WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode12.xaml", false /* waitForIdle */);
-}
-
-void SwitcherTests::CompNode13WUCFullSwitcherWithMockDComp()
-{
-    TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
-    LoadAndVerifySwitcherWithMockDComp(L"CompNode13.xaml");
-}
-
-// Shared helper for switcher + MockDComp tests. Mirrors the original CompNode1WUCFullSwitcherWithMockDComp
-// body so that every CompNode*WUCFullSwitcher* test exercises an identical flow.
-void SwitcherTests::LoadAndVerifySwitcherWithMockDComp(Platform::String^ markupFile, bool waitForIdle)
-{
-    auto wh = TestServices::WindowHelper;
-    auto u = TestServices::Utilities;
-
-    WUCRenderingScopeGuard wuc(DCompRendering::WUCCompleteSynchronousCompTree);
-
-    wh->SetWindowSizeOverride(wf::Size(400, 400));
-
-    StackPanel^ root = safe_cast<StackPanel^>(LoadXamlFileOnUIThread(GetResourcesPath() + markupFile));
-    RunOnUIThread([&]()
-    {
-        wh->WindowContent = root;
-    });
-    if (waitForIdle)
-    {
-        wh->WaitForIdle();
-    }
-    else
-    {
-        wh->SynchronouslyTickUIThread(3);
-    }
-
-    MockDComp::IMockDCompDevice^ mockDevice = wh->MockDCompDevice;
-    VERIFY_IS_NOT_NULL(
-        mockDevice,
-        L"XAML's DComp device does not implement IMockDCompDevice under switcher");
-
-    // VerifyMockDCompOutput compares the captured tree to the master xml resource.
-    u->VerifyMockDCompOutput(MockDComp::SurfaceComparison::NoComparison);
 }
 
 void SwitcherTests::VerifyLiftedSystemCompositionPath()

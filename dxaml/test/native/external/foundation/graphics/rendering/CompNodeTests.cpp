@@ -9,6 +9,7 @@
 #include "FileLoader.h"
 #include "TestCleanupWrapper.h"
 #include <RuntimeEnabledFeatureOverride.h>
+#include <RuntimeParameters.h>
 
 using namespace ::Windows::UI;
 using namespace Microsoft::UI::Xaml;
@@ -26,6 +27,16 @@ using namespace MockDComp;
 using namespace ::Windows::Storage::Streams;
 
 namespace Microsoft { namespace UI { namespace Xaml { namespace Tests { namespace Foundation { namespace Graphics {
+
+namespace
+{
+    bool IsSwitcherMode()
+    {
+        WEX::Common::String switcherMode;
+        return SUCCEEDED(WEX::TestExecution::RuntimeParameters::TryGetValue(L"SwitcherMode", switcherMode))
+            && (switcherMode.CompareNoCase(L"true") == 0 || switcherMode == L"1");
+    }
+}
 
 Platform::String^ CompNodeTests::GetResourcesPath() const
 {
@@ -45,6 +56,12 @@ bool CompNodeTests::ClassCleanup()
 
 bool CompNodeTests::TestSetup()
 {
+    if (IsSwitcherMode())
+    {
+        // XamlCheckProcessRequirements retains one process-lifetime allocation in Switcher mode.
+        TestServices::ErrorHandlingHelper->IgnoreLeaksForTest();
+    }
+
     test_infra::TestServices::WindowHelper->InitializeXaml();
     return true;
 }

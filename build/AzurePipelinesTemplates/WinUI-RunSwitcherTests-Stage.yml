@@ -8,6 +8,19 @@ parameters:
     type: string
     default: >-
       (@Name='*SwitcherTests*' OR
+      @Name='*CompNode1WUCFull' OR
+      @Name='*CompNode2WUCFull' OR
+      @Name='*CompNode3WUCFull' OR
+      @Name='*CompNode4WUCFull' OR
+      @Name='*CompNode5WUCFull' OR
+      @Name='*CompNode6WUCFull' OR
+      @Name='*CompNode7WUCFull' OR
+      @Name='*CompNode8WUCFull' OR
+      @Name='*CompNode9WUCFull' OR
+      @Name='*CompNode10WUCFull' OR
+      @Name='*CompNode11WUCFull' OR
+      @Name='*CompNode12WUCFull' OR
+      @Name='*CompNode13WUCFull' OR
       @Name='*VerifyWpfSwitcherSystemCompositionPath' OR
       @Name='*VerifyMuxControlsInteractionSwitcherSystemCompositionPath' OR
       @Name='*VerifyMuxControlsApiSwitcherSystemCompositionPath' OR
@@ -117,9 +130,11 @@ stages:
           targetType: inline
           workingDirectory: $(Build.SourcesDirectory)\build\PipelineScripts
           script: |
-            $resultPath = Join-Path (Get-Location) 'testResults-Foundation-Graphics-SwitcherTests.xml'
-            if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
-              throw "No switcher xUnit results were produced at $resultPath."
+            $resultPaths = @(
+              Get-ChildItem -Path (Get-Location) -Filter 'testResults-*.xml' -File
+            )
+            if ($resultPaths.Count -eq 0) {
+              throw 'No switcher xUnit results were produced.'
             }
 
             $total = 0
@@ -127,25 +142,29 @@ stages:
             $failed = 0
             $skipped = 0
             $errors = 0
-            [xml]$result = Get-Content -LiteralPath $resultPath
-            foreach ($assembly in @($result.assemblies.assembly)) {
-              $total += [int]$assembly.total
-              $passed += [int]$assembly.passed
-              $failed += [int]$assembly.failed
-              $skipped += [int]$assembly.skipped
-              $errors += [int]$assembly.errors
-            }
+            $testCases = @(
+              foreach ($resultPath in $resultPaths) {
+                [xml]$result = Get-Content -LiteralPath $resultPath.FullName
+                foreach ($assembly in @($result.assemblies.assembly)) {
+                  $total += [int]$assembly.total
+                  $passed += [int]$assembly.passed
+                  $failed += [int]$assembly.failed
+                  $skipped += [int]$assembly.skipped
+                  $errors += [int]$assembly.errors
+                }
+                $result.SelectNodes('/assemblies/assembly/collection/test')
+              }
+            )
 
             $expectedMethods = @(
-              1..13 | ForEach-Object { "CompNode${_}WUCFullSwitcherWithMockDComp" }
+              1..13 | ForEach-Object { "CompNode${_}WUCFull" }
             ) + @(
               'VerifyLiftedSystemCompositionPath'
               'VerifyManagedPackagedHostSystemCompositionPath'
             )
             $expectedTestCount = ${{ parameters.expectedTestCount }}
             $expectedPassedCount = $expectedTestCount - 1
-            $knownFailureMethod = 'CompNode12WUCFullSwitcherWithMockDComp'
-            $testCases = @($result.SelectNodes('/assemblies/assembly/collection/test'))
+            $knownFailureMethod = 'CompNode12WUCFull'
             $actualMethods = @($testCases | ForEach-Object { [string]$_.method })
             $missingMethods = @($expectedMethods | Where-Object { $actualMethods -notcontains $_ })
             $unexpectedMethods = @($actualMethods | Where-Object { $expectedMethods -notcontains $_ })

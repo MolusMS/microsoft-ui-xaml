@@ -58,8 +58,8 @@ foreach ($f in Get-ChildItem $MastersDir -Filter '*.master*.xml' -File -ErrorAct
 }
 
 # Map a fully-qualified TAEF test name to its master prefix.
-#   Microsoft::UI::Xaml::Tests::Foundation::Graphics::SwitcherTests::CompNode1...
-#     -> Foundation_Graphics_SwitcherTests_CompNode1...
+#   Microsoft::UI::Xaml::Tests::Foundation::Graphics::CompNodeTests::CompNode1WUCFull
+#     -> Foundation_Graphics_CompNodeTests_CompNode1WUCFull
 function Get-MasterPrefix([string]$testName) {
     $n = $testName -replace '^Microsoft::UI::Xaml::Tests::', ''
     return ($n -replace '::', '_')
